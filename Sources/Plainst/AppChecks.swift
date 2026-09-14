@@ -335,7 +335,49 @@ enum AppChecks {
                           fail("double-clicking a word in the equation selected \(view.selectedRange()), not \(word)")
                         }
                         pass("double-clicking a word in an equation's source selects it")
-                        finish()
+
+                        // Dollar signs pair, Typst completions appear, and snippets fill in.
+                        editor.loadText("")
+                        type("Area $")
+                        guard editor.text == "Area $$", view.selectedRange().location == 6 else {
+                          fail("typing $ should insert a pair: \(editor.text.debugDescription)")
+                        }
+                        type("alp")
+                        after(1.0) {
+                          guard editor.assistant.popup.isVisible,
+                            editor.assistant.popup.items.first?.label == "alpha"
+                          else {
+                            fail("typing alp in an equation should suggest alpha; got \(editor.assistant.popup.items.prefix(3).map(\.label))")
+                          }
+                          key("\r", code: 36)
+                          guard editor.text == "Area $alpha$", !editor.assistant.popup.isVisible else {
+                            fail("Return should accept the completion: \(editor.text.debugDescription)")
+                          }
+                          type(" = fra")
+                          after(1.0) {
+                            guard editor.assistant.popup.items.first?.label == "frac" else {
+                              fail("typing fra should suggest frac")
+                            }
+                            key("\t", code: 48)
+                            after(0.3) {
+                              let text = editor.text as NSString
+                              let open = text.range(of: "frac(").location
+                              guard open != NSNotFound, view.selectedRange().location == open + 5 else {
+                                fail("accepting frac should place the cursor in its first placeholder: \(editor.text.debugDescription) \(view.selectedRange())")
+                              }
+                              type("1, 2")
+                              key("\t", code: 48)
+                              let after = (editor.text as NSString).range(of: "frac(1, 2)")
+                              guard after.location != NSNotFound,
+                                view.selectedRange().location == NSMaxRange(after)
+                              else {
+                                fail("Tab after the last placeholder should leave the snippet: \(editor.text.debugDescription) \(view.selectedRange())")
+                              }
+                              pass("dollar signs pair, completions insert symbols, and Tab moves through snippets")
+                              finish()
+                            }
+                          }
+                        }
                       }
                     }
                   }
@@ -435,6 +477,11 @@ enum AppChecks {
       if let width = environment["PLAINST_WIDTH"].flatMap(Double.init) {
         window.setContentSize(NSSize(width: width, height: environment["PLAINST_HEIGHT"].flatMap(Double.init) ?? 760))
       }
+      if let typed = environment["PLAINST_TYPE"] {
+        for character in typed {
+          editor.textView.insertText(String(character), replacementRange: editor.textView.selectedRange())
+        }
+      }
       if let hover = environment["PLAINST_HOVER"].flatMap(Int.init) {
         after(2) { editor.showHover(at: hover) }
       }
@@ -460,6 +507,14 @@ enum AppChecks {
       }
       after(Double(environment["PLAINST_WAIT"] ?? "3") ?? 3) {
         // The document window goes to `path`; any other window, such as Settings, gets a suffix.
+        if !editor.assistant.popup.items.isEmpty, let popup = editor.assistant.popup.contentView {
+          // The completion list hides when the app isn't frontmost, so draw its view directly.
+          if let bitmap = popup.bitmapImageRepForCachingDisplay(in: popup.bounds) {
+            popup.cacheDisplay(in: popup.bounds, to: bitmap)
+            let output = (path as NSString).deletingPathExtension + "-completions.png"
+            try? bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: output))
+          }
+        }
         let others = NSApp.orderedWindows.filter { $0.isVisible && $0 !== window && $0.tabbedWindows?.contains(window) != true }
         for (index, shown) in ([window] + others).enumerated() {
           guard let view = shown.contentView?.superview else { fail("no content") }

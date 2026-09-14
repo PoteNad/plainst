@@ -118,6 +118,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
       tag: NSTextFinder.Action.setSearchString.rawValue)
     add(find, "Jump to Selection", #selector(NSTextView.centerSelectionInVisibleArea(_:)), "j")
     add(edit, "Go to Line…", #selector(Editor.goToLine(_:)), "l")
+    add(edit, "Show Completions", #selector(NSTextView.complete(_:)), "\u{1b}", modifiers: [.option])
     edit.addItem(.separator())
     if #available(macOS 15.2, *) {
       writingToolsItems = NSMenuItem.writingToolsItems

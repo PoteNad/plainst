@@ -15,6 +15,8 @@ Plainst formats paragraphs, headings, bold, italic, inline code and code blocks,
 - Native document windows and tabs, autosave, versions, Revert, Duplicate, Rename, and Move.
 - Format commands that write plain Typst: Bold (⌘B), Italic (⌘I), Code, Headings (⌥⌘1–3), Bulleted and Numbered Lists (⇧⌘8, ⇧⌘7), Equations (⌥⌘E, ⇧⌥⌘E).
 - Return continues a list and ends it on an empty item; Tab and Shift-Tab nest items.
+- Completions from Typst's own IDE engine for symbols, math functions, and code (⌥⎋ to ask), with snippet placeholders you can Tab through.
+- Automatic pairs for dollar signs, brackets, and quotes in code.
 - Live Typst diagnostics with underlines and a status bar menu, plus word and page counts.
 - Find and replace, spelling, zoom, light and dark appearances, and optional Apple Writing Tools that are off by default.
 - Opening and saving an unedited file keeps it byte-for-byte identical, including line endings and byte order marks.

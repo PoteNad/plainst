@@ -84,3 +84,26 @@ fn packages_are_unavailable() {
     let output = compile("#import \"@preview/foo:0.1.0\": *\n", false);
     assert!(output.json.contains("offline"), "{}", output.json);
 }
+
+#[test]
+fn completes_math_symbols() {
+    let text = "Energy $alp$ here";
+    let json = complete_json(text, 11, false);
+    assert!(json.contains("\"label\":\"alpha\""), "{json}");
+    assert!(json.contains("\"symbol\":\"α\""), "{json}");
+    assert!(json.starts_with("{\"from\":8,"), "{json}");
+}
+
+#[test]
+fn completes_math_functions_with_snippets() {
+    let json = complete_json("$fra$", 4, false);
+    assert!(json.contains("\"label\":\"frac\""), "{json}");
+    assert!(json.contains("${"), "{json}");
+}
+
+#[test]
+fn lists_symbols() {
+    let json = symbols_json();
+    assert!(json.contains("[\"alpha\",\"α\"]"), "{}", &json[..200]);
+    assert!(json.contains("[\"arrow.r\",\"→\"]"));
+}

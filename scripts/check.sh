@@ -22,7 +22,9 @@ IGNORE_STATE="-ApplePersistenceIgnoreState YES"
 # shellcheck disable=SC2086
 PLAINST_LAUNCH_CHECK=1 "$APP" $IGNORE_STATE
 # shellcheck disable=SC2086
-PLAINST_EDIT_CHECK=1 "$APP" $IGNORE_STATE
+# The random edits compare against a plain model, so typing assistance stays off here.
+# shellcheck disable=SC2086
+PLAINST_EDIT_CHECK=1 "$APP" $IGNORE_STATE -autoPair NO -completions NO
 # shellcheck disable=SC2086
 PLAINST_INPUT_CHECK=1 "$APP" $IGNORE_STATE
 

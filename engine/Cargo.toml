@@ -14,6 +14,8 @@ typst-syntax = "=0.15.1"
 typst-pdf = "=0.15.1"
 typst-render = "=0.15.1"
 typst-layout = "=0.15.1"
+typst-ide = "=0.15.1"
+codex = "=0.3.0"
 typst-kit = { version = "=0.15.1", default-features = false, features = ["scan-fonts", "embedded-fonts", "datetime"] }
 typst-assets = { version = "=0.15.1", features = ["fonts"] }
 

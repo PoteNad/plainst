@@ -1,0 +1,240 @@
+import AppKit
+import PlainstCore
+
+/// Typing assistance: Typst completions, snippet placeholders, and automatic pairs.
+@MainActor
+final class TypingAssistant {
+  unowned let editor: Editor
+  let popup = CompletionPopup()
+  private static let queue = DispatchQueue(label: "io.github.PoteNad.plainst.complete", qos: .userInitiated)
+  private var generation = 0
+  /// The last completions from Typst, reused while the user keeps typing the same word.
+  private var cached: (list: CompletionList, text: String)?
+  /// Placeholders left to visit with Tab after accepting a snippet, in document coordinates.
+  private(set) var placeholders: [NSRange] = []
+  /// Set while pasting or applying an edit, so the text isn't treated as typing.
+  var isSuspended = false
+
+  init(editor: Editor) {
+    self.editor = editor
+    popup.onAccept = { [weak self] completion in self?.accept(completion) }
+  }
+
+  private var text: NSString { editor.storage.mutableString }
+  private var view: WritingTextView { editor.textView }
+
+  /// Whether a location is inside an equation or embedded code, where Typst code rules apply.
+  func isInCode(_ location: Int) -> Bool {
+    editor.elements.contains {
+      ($0.kind == .math || $0.kind == .code) && $0.range.location < location
+        && location <= NSMaxRange($0.range) - ($0.kind == .math ? 1 : 0)
+    }
+  }
+
+  // MARK: Typing
+
+  /// Handles a typed string before it is inserted. Returns true when the assistant inserted it.
+  func handleTyping(_ string: String) -> Bool {
+    guard !isSuspended, AppPreferences.autoPair, !view.hasMarkedText() else { return false }
+    let selection = view.selectedRange()
+    guard
+      let edit = AutoPair.edit(
+        typing: string, text: text, selection: selection, inCode: isInCode(selection.location))
+    else { return false }
+    editor.apply(edit, actionName: "Typing")
+    return true
+  }
+
+  func handleDeleteBackward() -> Bool {
+    guard AppPreferences.autoPair,
+      let edit = AutoPair.deleteBackward(text: text, selection: view.selectedRange())
+    else { return false }
+    editor.apply(edit, actionName: "Typing")
+    return true
+  }
+
+  /// Handles keys while the completion list is open or a snippet has placeholders left.
+  func handleCommand(_ selector: Selector) -> Bool {
+    if popup.isVisible {
+      switch selector {
+      case #selector(NSResponder.moveUp(_:)):
+        popup.moveSelection(by: -1)
+        return true
+      case #selector(NSResponder.moveDown(_:)):
+        popup.moveSelection(by: 1)
+        return true
+      case #selector(NSResponder.insertNewline(_:)), #selector(NSResponder.insertTab(_:)):
+        popup.acceptSelection()
+        return true
+      case #selector(NSResponder.cancelOperation(_:)):
+        dismiss()
+        return true
+      default:
+        break
+      }
+    }
+    if selector == #selector(NSResponder.insertTab(_:)), !placeholders.isEmpty {
+      let next = placeholders.removeFirst()
+      guard NSMaxRange(next) <= text.length else {
+        placeholders.removeAll()
+        return false
+      }
+      view.setSelectedRange(next)
+      return true
+    }
+    if selector == #selector(NSResponder.cancelOperation(_:)), !placeholders.isEmpty {
+      placeholders.removeAll()
+      return true
+    }
+    return false
+  }
+
+  // MARK: Completions
+
+  /// Called after the text changes because of typing.
+  func textDidChange(typed: String?) {
+    guard AppPreferences.completions, let typed, !isSuspended else {
+      if typed == nil { dismiss() }
+      return
+    }
+    let caret = view.selectedRange()
+    guard caret.length == 0 else { return dismiss() }
+    let character = typed.last ?? " "
+    let isWordCharacter = character.isLetter || character.isNumber || character == "_" || character == "-"
+    let inCode = isInCode(caret.location)
+    if popup.isVisible, isWordCharacter {
+      return request(explicit: false)
+    }
+    if character == "#" && !inCode {
+      return request(explicit: false)
+    }
+    if inCode && (character == "." || (isWordCharacter && wordLength(before: caret.location) >= 2)) {
+      return request(explicit: false)
+    }
+    dismiss()
+  }
+
+  private func wordLength(before location: Int) -> Int {
+    var start = location
+    while start > 0, let scalar = UnicodeScalar(text.character(at: start - 1)),
+      CharacterSet.alphanumerics.contains(scalar)
+    {
+      start -= 1
+    }
+    return location - start
+  }
+
+  func selectionDidChange() {
+    let caret = view.selectedRange()
+    if popup.isVisible, let cached, caret.length > 0 || caret.location < cached.list.from {
+      dismiss()
+    }
+    if let last = placeholders.last, caret.location > NSMaxRange(last) + 1 {
+      placeholders.removeAll()
+    }
+  }
+
+  /// Adjusts snippet placeholders after an edit.
+  func textStorageDidEdit(range: NSRange, delta: Int) {
+    guard !placeholders.isEmpty else { return }
+    let oldEnd = NSMaxRange(range) - delta
+    placeholders = placeholders.compactMap { placeholder in
+      var placeholder = placeholder
+      if placeholder.location >= oldEnd {
+        placeholder.location += delta
+      } else if range.location >= placeholder.location && range.location <= NSMaxRange(placeholder) {
+        placeholder.length = max(0, placeholder.length + delta)
+      }
+      return placeholder
+    }
+  }
+
+  func dismiss() {
+    generation += 1
+    popup.hide()
+  }
+
+  /// Asks Typst for completions at the cursor and shows them when they arrive.
+  func request(explicit: Bool) {
+    let caret = view.selectedRange()
+    guard caret.length == 0, editor.window != nil else { return dismiss() }
+    let snapshot = editor.text
+    // Keep filtering the previous results while the word being completed grows.
+    if !explicit, let cached, popup.isVisible, caret.location >= cached.list.from,
+      cached.text.hasPrefix((snapshot as NSString).substring(to: cached.list.from)),
+      !query(for: cached.list, caret: caret.location).contains(".")
+    {
+      return present(cached.list, caret: caret.location)
+    }
+    generation += 1
+    let generation = self.generation
+    let location = caret.location
+    Self.queue.async { [weak self] in
+      let list = Engine.completions(snapshot, cursor: location, explicit: explicit)
+      DispatchQueue.main.async {
+        MainActor.assumeIsolated {
+          guard let self, generation == self.generation, self.editor.text == snapshot,
+            self.view.selectedRange() == NSRange(location: location, length: 0)
+          else { return }
+          self.cached = (list, snapshot)
+          self.present(list, caret: location)
+        }
+      }
+    }
+  }
+
+  private func query(for list: CompletionList, caret: Int) -> String {
+    guard list.from <= caret, caret <= text.length else { return "" }
+    return text.substring(with: NSRange(location: list.from, length: caret - list.from))
+  }
+
+  private func present(_ list: CompletionList, caret: Int) {
+    let exact = query(for: list, caret: caret)
+    let typed = exact.lowercased()
+    // Matches with the same capitalization come first, then any prefix, then any substring.
+    let ranked: [(Int, Completion)] = list.items.compactMap { item in
+      let label = item.label.lowercased()
+      if typed.isEmpty || item.label.hasPrefix(exact) { return (0, item) }
+      if label.hasPrefix(typed) { return (1, item) }
+      if label.contains(typed) { return (2, item) }
+      return nil
+    }
+    let items = ranked.enumerated().sorted { a, b in
+      if a.element.0 != b.element.0 { return a.element.0 < b.element.0 }
+      if a.element.1.label.count != b.element.1.label.count, !typed.isEmpty {
+        return a.element.1.label.count < b.element.1.label.count
+      }
+      return a.offset < b.offset
+    }.prefix(100).map(\.element.1)
+    // Nothing left to suggest once the word is already complete.
+    guard let window = editor.window, !items.isEmpty,
+      !(items.count == 1 && items[0].label.lowercased() == typed)
+    else { return popup.hide() }
+    let caretRect = view.firstRect(
+      forCharacterRange: NSRange(location: list.from, length: 0), actualRange: nil)
+    popup.show(Array(items), below: caretRect, in: window)
+  }
+
+  private func accept(_ completion: Completion) {
+    guard let cached else { return dismiss() }
+    let caret = view.selectedRange().location
+    let from = min(cached.list.from, caret)
+    let snippet = ExpandedSnippet(completion.apply)
+    dismiss()
+    let range = NSRange(location: from, length: caret - from)
+    let first = snippet.placeholders.first.map {
+      NSRange(location: from + $0.location, length: $0.length)
+    }
+    let end = NSRange(location: from + (snippet.text as NSString).length, length: 0)
+    editor.apply(
+      TextEdit(range: range, replacement: snippet.text, selection: first ?? end),
+      actionName: "Completion")
+    placeholders = snippet.placeholders.dropFirst().map {
+      NSRange(location: from + $0.location, length: $0.length)
+    }
+    if !snippet.placeholders.isEmpty {
+      // After the last placeholder, Tab moves past the inserted text.
+      placeholders.append(end)
+    }
+  }
+}

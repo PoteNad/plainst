@@ -178,3 +178,47 @@ import Testing
     #expect(valid(inline.applied(to: text as String)))
   }
 }
+
+@Suite struct TypingAssistance {
+  func type(_ character: String, in text: String, at location: Int, inCode: Bool = false) -> (String, Int)? {
+    guard
+      let edit = AutoPair.edit(
+        typing: character, text: text as NSString, selection: NSRange(location: location, length: 0),
+        inCode: inCode)
+    else { return nil }
+    return (edit.applied(to: text), edit.selection.location)
+  }
+
+  @Test func pairsAndStepsOverClosingCharacters() {
+    #expect(type("$", in: "Area ", at: 5)! == ("Area $$", 6))
+    #expect(type("(", in: "$f$", at: 2, inCode: true)! == ("$f()$", 3))
+    #expect(type(")", in: "$f()$", at: 3, inCode: true)! == ("$f()$", 4))
+    #expect(type("$", in: "$x$", at: 2, inCode: true)! == ("$x$", 3))
+    #expect(type("\"", in: "text ", at: 5) == nil)
+    #expect(type("\"", in: "#text()", at: 6, inCode: true)! == ("#text(\"\")", 7))
+  }
+
+  @Test func leavesWordsAndEscapesAlone() {
+    #expect(type("(", in: "word", at: 0) == nil)
+    #expect(type("$", in: "costs 5", at: 7) == nil)
+    #expect(type("$", in: "\\", at: 1) == nil)
+  }
+
+  @Test func deletesEmptyPairs() {
+    let edit = AutoPair.deleteBackward(text: "a ()" as NSString, selection: NSRange(location: 3, length: 0))
+    #expect(edit?.applied(to: "a ()") == "a ")
+    #expect(AutoPair.deleteBackward(text: "a (b)" as NSString, selection: NSRange(location: 4, length: 0)) == nil)
+  }
+
+  @Test func expandsSnippets() {
+    let snippet = ExpandedSnippet("frac(${num}, ${})")
+    #expect(snippet.text == "frac(num, )")
+    #expect(snippet.placeholders == [NSRange(location: 5, length: 3), NSRange(location: 10, length: 0)])
+  }
+
+  @Test func completesFromTypst() {
+    let list = Engine.completions("$arrow.$", cursor: 7, explicit: false)
+    #expect(list.items.contains { $0.label == "r" && $0.symbol == "→" })
+    #expect(Engine.symbols.contains(TypstSymbol(name: "arrow.r.double", value: "⇒")))
+  }
+}

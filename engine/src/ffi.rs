@@ -138,3 +138,21 @@ pub unsafe extern "C" fn plainst_bundled_font(index: usize, len: *mut usize) -> 
         None => std::ptr::null(),
     }
 }
+
+/// Completions at a UTF-16 cursor position, as UTF-8 JSON.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn plainst_complete(
+    data: *const u8,
+    len: usize,
+    cursor_utf16: usize,
+    explicit: bool,
+) -> PlainstBuffer {
+    let source = unsafe { text(data, len) };
+    guarded(|| crate::complete_json(&source, cursor_utf16, explicit).into_bytes())
+}
+
+/// Every symbol name and its character, as UTF-8 JSON.
+#[unsafe(no_mangle)]
+pub extern "C" fn plainst_symbols() -> PlainstBuffer {
+    guarded(|| crate::symbols_json().into_bytes())
+}

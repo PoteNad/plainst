@@ -8,6 +8,8 @@ enum PreferenceKey {
   static let status = "status"
   static let checkSpelling = "checkSpelling"
   static let writingTools = "writingTools"
+  static let completions = "completions"
+  static let autoPair = "autoPair"
 }
 
 enum AppAppearance: String, CaseIterable {
@@ -42,8 +44,13 @@ enum AppPreferences {
       PreferenceKey.status: true,
       PreferenceKey.checkSpelling: false,
       PreferenceKey.writingTools: false,
+      PreferenceKey.completions: true,
+      PreferenceKey.autoPair: true,
     ])
   }
+
+  static var completions: Bool { UserDefaults.standard.bool(forKey: PreferenceKey.completions) }
+  static var autoPair: Bool { UserDefaults.standard.bool(forKey: PreferenceKey.autoPair) }
 
   static var appearance: AppAppearance {
     AppAppearance(rawValue: UserDefaults.standard.string(forKey: PreferenceKey.appearance) ?? "")

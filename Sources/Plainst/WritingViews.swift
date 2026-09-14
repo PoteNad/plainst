@@ -146,9 +146,26 @@ final class WritingTextView: NSTextView {
     return y >= lastLine.maxY
   }
 
+  override func insertText(_ string: Any, replacementRange: NSRange) {
+    guard let editor, let typed = (string as? String) ?? (string as? NSAttributedString)?.string,
+      replacementRange.location == NSNotFound || replacementRange == selectedRange()
+    else { return super.insertText(string, replacementRange: replacementRange) }
+    if editor.assistant.handleTyping(typed) { return }
+    editor.lastTyped = typed
+    super.insertText(string, replacementRange: replacementRange)
+  }
+
+  /// ⌥⎋ and Edit ▸ Show Completions ask Typst for suggestions at the cursor.
+  override func complete(_ sender: Any?) {
+    guard let editor else { return super.complete(sender) }
+    editor.assistant.request(explicit: true)
+  }
+
   override func readSelection(from pboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
     // Paste only text, normalising line endings like the file loader does.
     guard let value = pboard.string(forType: .string) else { return false }
+    editor?.assistant.isSuspended = true
+    defer { editor?.assistant.isSuspended = false }
     insertText(
       value.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n"),
       replacementRange: selectedRange())

@@ -208,6 +208,40 @@ public enum Engine {
     return .success(MathRender(image: image, size: size, baseline: baseline))
   }
 
+  private struct RawCompletions: Decodable {
+    struct Item: Decodable {
+      var kind: String
+      var label: String
+      var apply: String
+      var detail: String
+      var symbol: String
+    }
+    var from: Int
+    var items: [Item]
+  }
+
+  /// Typst's completions at a cursor, the same suggestions its language server offers.
+  public static func completions(_ text: String, cursor: Int, explicit: Bool) -> CompletionList {
+    let data = call(text) { plainst_complete($0, $1, max(0, cursor), explicit) }
+    guard let raw = try? JSONDecoder().decode(RawCompletions.self, from: data) else {
+      return CompletionList(from: cursor, items: [])
+    }
+    return CompletionList(
+      from: raw.from,
+      items: raw.items.map {
+        Completion(
+          kind: Completion.Kind(rawValue: $0.kind) ?? .syntax, label: $0.label, apply: $0.apply,
+          detail: $0.detail, symbol: $0.symbol.isEmpty ? nil : $0.symbol)
+      })
+  }
+
+  /// Every symbol Typst knows, by full name, such as `arrow.r.double`.
+  public static let symbols: [TypstSymbol] = {
+    let data = call("") { _, _ in plainst_symbols() }
+    guard let raw = try? JSONDecoder().decode([[String]].self, from: data) else { return [] }
+    return raw.compactMap { $0.count == 2 ? TypstSymbol(name: $0[0], value: $0[1]) : nil }
+  }()
+
   /// Loads fonts and the standard library so the first render is fast.
   public static func warmUp() { plainst_warm_up() }
 

@@ -6,9 +6,11 @@
 //! units so they line up with `NSString` ranges.
 
 mod ffi;
+mod ide;
 mod outline;
 mod world;
 
+pub use ide::{complete_json, symbols_json};
 pub use outline::{outline_binary, outline_json};
 pub use world::{CompileOutput, MathImage, compile, render_math};
 

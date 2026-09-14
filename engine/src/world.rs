@@ -17,7 +17,7 @@ use crate::{Utf16Map, json_string};
 
 static LIBRARY: LazyLock<LazyHash<Library>> = LazyLock::new(|| LazyHash::new(Library::default()));
 static FONTS: OnceLock<FontStore> = OnceLock::new();
-static MAIN_ID: LazyLock<FileId> = LazyLock::new(|| file_id("main.typ"));
+pub(crate) static MAIN_ID: LazyLock<FileId> = LazyLock::new(|| file_id("main.typ"));
 static MATH_ID: LazyLock<FileId> = LazyLock::new(|| file_id("equation.typ"));
 /// The last compiled document source, kept so Typst can reparse incrementally.
 static DOCUMENT: Mutex<Option<Source>> = Mutex::new(None);
@@ -44,13 +44,13 @@ pub(crate) fn fonts() -> &'static FontStore {
     })
 }
 
-struct PlainstWorld {
+pub(crate) struct PlainstWorld {
     main: Source,
     time: Time,
 }
 
 impl PlainstWorld {
-    fn new(main: Source) -> Self {
+    pub(crate) fn new(main: Source) -> Self {
         Self {
             main,
             time: Time::system(),

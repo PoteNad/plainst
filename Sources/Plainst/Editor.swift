@@ -47,6 +47,10 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
   private var previewLine: NSRange?
   private var previewSpace: CGFloat = 0
   private var wordCount = 0
+  /// Completions, snippet placeholders and automatic pairs.
+  lazy var assistant = TypingAssistant(editor: self)
+  /// The text most recently typed, so completions know what triggered a change.
+  var lastTyped: String?
 
   var concealing: Bool { mode == .writing }
   /// View points per Typst point, so the Writing view keeps the PDF's proportions.
@@ -246,6 +250,7 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
         index.rebuild(textStorage.mutableString)
       } else {
         index.update(textStorage.mutableString, editedRange: editedRange, delta: delta)
+        assistant.textStorageDidEdit(range: editedRange, delta: delta)
       }
       if pendingRestyle != nil {
         // Programmatic edits don't send textDidChange, so make sure deferred styling lands.
@@ -266,6 +271,9 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
     updatePreview()
     updateStatus()
     scheduleCompile()
+    let typed = lastTyped
+    lastTyped = nil
+    assistant.textDidChange(typed: typed)
   }
 
   func textViewDidChangeSelection(_ notification: Notification) {
@@ -284,11 +292,16 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
     updateStatus()
     // Changing layout under the pointer during a click, double-click or drag makes AppKit
     // select the wrong text, so wait until the button is released.
+    assistant.selectionDidChange()
     guard !textView.hasMarkedText(), !isTrackingMouse else { return }
     refreshPresentation()
   }
 
   func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+    if assistant.handleCommand(commandSelector) { return true }
+    if commandSelector == #selector(NSResponder.deleteBackward(_:)), assistant.handleDeleteBackward() {
+      return true
+    }
     let selection = textView.selectedRange()
     let inCode = elements.contains {
       ($0.kind == .raw || $0.kind == .math) && $0.range.location < selection.location
@@ -1228,6 +1241,7 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
     guard newMode != mode else { return }
     let selection = textView.selectedRange()
     mode = newMode
+    assistant.dismiss()
     viewGroup?.selectedIndex = EditorMode.allCases.firstIndex(of: newMode) ?? 0
     restyleEverything()
     textView.setSelectedRange(selection)

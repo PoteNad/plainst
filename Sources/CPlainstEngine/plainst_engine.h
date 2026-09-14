@@ -25,6 +25,13 @@ PlainstBuffer plainst_compile(const uint8_t *text, size_t len, bool want_pdf);
 PlainstBuffer plainst_render_math(const uint8_t *equation, size_t len, bool block,
                                   double pixels_per_pt, uint32_t rgba);
 
+/// Typst completions at a UTF-16 cursor offset, as UTF-8 JSON:
+/// {"from": utf16, "items": [{"kind", "label", "apply", "detail", "symbol"}]}.
+PlainstBuffer plainst_complete(const uint8_t *text, size_t len, size_t cursor_utf16, bool explicit_);
+
+/// Every Typst symbol name and its character, as UTF-8 JSON [[name, symbol], ...].
+PlainstBuffer plainst_symbols(void);
+
 void plainst_warm_up(void);
 
 size_t plainst_bundled_font_count(void);
