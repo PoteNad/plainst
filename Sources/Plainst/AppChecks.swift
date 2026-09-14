@@ -83,7 +83,7 @@ enum AppChecks {
           windows[0].tabbedWindows?.count == 2
         else { fail("New Tab should add a tab to the window") }
         guard editor.text == "= Hello\n\nSome *bold* and $x^2$." else {
-          fail("switching views changed the text")
+          fail("switching views changed the text to \(editor.text.debugDescription)")
         }
         guard !editor.presentation.replacements.isEmpty else {
           fail("the equation was not rendered in the Writing view")
@@ -103,6 +103,27 @@ enum AppChecks {
             else { fail("the saved file did not match the text") }
             try? FileManager.default.removeItem(at: folder)
             pass("windows, tabs, views, equation rendering and saving new documents work")
+
+            // Every catalogued symbol exists in Typst, and inserting symbols writes valid math.
+            let missing = SymbolCatalog.groups.flatMap(\.names).filter { SymbolCatalog.values[$0] == nil }
+            guard missing.isEmpty else { fail("unknown symbols in the catalog: \(missing)") }
+            editor.loadText("Let  be x.")
+            editor.textView.setSelectedRange(NSRange(location: 4, length: 0))
+            editor.insertMath("epsilon", snippet: false)
+            guard editor.text == "Let $epsilon$ be x." else {
+              fail("inserting a symbol in prose should add an equation: \(editor.text.debugDescription)")
+            }
+            editor.textView.setSelectedRange(NSRange(location: 12, length: 0))
+            editor.insertMath("arrow.r", snippet: false)
+            let body = (editor.text as NSString).range(of: "x.")
+            editor.textView.setSelectedRange(NSRange(location: body.location, length: 1))
+            editor.insertMath("sqrt(${x})", snippet: true)
+            guard editor.text == "Let $epsilon arrow.r$ be $sqrt(x)$.",
+              Engine.compile(editor.text, pdf: false).errors.isEmpty
+            else {
+              fail("inserting symbols and structures produced \(editor.text.debugDescription)")
+            }
+            pass("the symbol catalog is valid and inserting symbols and structures writes valid Typst")
             finish()
           }
         }
@@ -221,8 +242,9 @@ enum AppChecks {
         let editor = document.editor, let window = editor.window
       else { fail("expected an untitled document") }
       let view = editor.textView
-      window.makeKeyAndOrderFront(nil)
+      // Mouse events only reach an active window, so this one check brings the app forward.
       NSApp.activate(ignoringOtherApps: true)
+      window.makeKeyAndOrderFront(nil)
 
       @MainActor func key(_ characters: String, code: UInt16 = 0) {
         for event: NSEvent.EventType in [.keyDown, .keyUp] {

@@ -154,6 +154,9 @@ final class TypingAssistant {
     popup.hide()
   }
 
+  /// Remembers snippet placeholders to visit with Tab, in document coordinates.
+  func setPlaceholders(_ ranges: [NSRange]) { placeholders = ranges }
+
   /// Asks Typst for completions at the cursor and shows them when they arrive.
   func request(explicit: Bool) {
     let caret = view.selectedRange()
@@ -236,5 +239,52 @@ final class TypingAssistant {
       // After the last placeholder, Tab moves past the inserted text.
       placeholders.append(end)
     }
+  }
+}
+
+extension Editor {
+  /// Inserts a symbol name or math snippet at the cursor. Inside an equation it goes in as is;
+  /// elsewhere it is wrapped in dollar signs. A selection fills the snippet's first placeholder.
+  func insertMath(_ code: String, snippet isSnippet: Bool) {
+    guard textView.isEditable else { return }
+    window?.makeFirstResponder(textView)
+    let text = storage.mutableString
+    let selection = textView.selectedRange()
+    let inMath = elements.contains {
+      $0.kind == .math && $0.range.location < selection.location
+        && NSMaxRange(selection) < NSMaxRange($0.range)
+    }
+    var source = code
+    if isSnippet, selection.length > 0, let open = source.range(of: "${"),
+      let close = source[open.upperBound...].firstIndex(of: "}")
+    {
+      // The selected text becomes the first placeholder, like wrapping it in a function.
+      source.replaceSubrange(open.lowerBound...close, with: "${\(text.substring(with: selection))}")
+    }
+    let snippet = isSnippet ? ExpandedSnippet(source) : ExpandedSnippet(plain: code)
+    func isWordCharacter(_ location: Int) -> Bool {
+      guard location >= 0, location < text.length, let scalar = UnicodeScalar(text.character(at: location))
+      else { return false }
+      return CharacterSet.alphanumerics.contains(scalar)
+    }
+    var body = snippet.text
+    var offset = 0
+    if inMath {
+      if isWordCharacter(selection.location - 1) {
+        body = " " + body
+        offset = 1
+      }
+      if isWordCharacter(NSMaxRange(selection)) { body += " " }
+    } else {
+      body = "$" + body + "$"
+      offset = 1
+    }
+    let start = selection.location + offset
+    let placeholders = snippet.placeholders.map { NSRange(location: start + $0.location, length: $0.length) }
+    let end = NSRange(location: start + (snippet.text as NSString).length + (inMath ? 0 : 1), length: 0)
+    apply(
+      TextEdit(range: selection, replacement: body, selection: placeholders.first ?? end),
+      actionName: isSnippet ? "Insert Structure" : "Insert Symbol")
+    assistant.setPlaceholders(placeholders.isEmpty ? [] : Array(placeholders.dropFirst()) + [end])
   }
 }

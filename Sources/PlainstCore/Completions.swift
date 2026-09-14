@@ -40,6 +40,12 @@ public struct ExpandedSnippet: Equatable, Sendable {
   /// Placeholder ranges relative to the start of `text`, in UTF-16 offsets.
   public var placeholders: [NSRange]
 
+  /// Text without placeholders.
+  public init(plain text: String) {
+    self.text = text
+    placeholders = []
+  }
+
   /// Expands `${}` and `${name}` markers: each becomes its name (or nothing) and a placeholder.
   public init(_ snippet: String) {
     var output = ""

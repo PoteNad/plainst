@@ -47,6 +47,8 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
   private var previewLine: NSRange?
   private var previewSpace: CGFloat = 0
   private var wordCount = 0
+  let symbols = SymbolsViewController()
+  private var symbolsItem: NSSplitViewItem!
   /// Completions, snippet placeholders and automatic pairs.
   lazy var assistant = TypingAssistant(editor: self)
   /// The text most recently typed, so completions know what triggered a change.
@@ -149,7 +151,24 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
     problems.setAccessibilityLabel("Typst problems")
 
     let root = NSView()
-    window.contentView = root
+    // The document sits beside a collapsible symbols inspector, like Pages' Format panel.
+    let documentController = NSViewController()
+    documentController.view = root
+    symbols.editor = self
+    let split = NSSplitViewController()
+    split.addSplitViewItem(NSSplitViewItem(viewController: documentController))
+    symbolsItem = NSSplitViewItem(inspectorWithViewController: symbols)
+    symbolsItem.canCollapse = true
+    symbolsItem.minimumThickness = 268
+    symbolsItem.maximumThickness = 380
+    symbolsItem.isCollapsed = !UserDefaults.standard.bool(forKey: PreferenceKey.symbolsVisible)
+    split.addSplitViewItem(symbolsItem)
+    split.splitView.autosaveName = "PlainstSymbolsSplit"
+    window.contentViewController = split
+    if !window.setFrameUsingName("PlainstDocumentWindow") {
+      window.setContentSize(NSSize(width: 920, height: 720))
+      window.center()
+    }
     root.addSubview(scroll)
     root.addSubview(statusBar)
     statusBar.addSubview(position)
@@ -1192,10 +1211,23 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
   // MARK: Commands
 
   private static let viewItem = NSToolbarItem.Identifier("view")
+  private static let symbolsToolbarItem = NSToolbarItem.Identifier("symbols")
+
+  var symbolsVisible: Bool { !symbolsItem.isCollapsed }
+
+  @objc func toggleSymbols(_ sender: Any?) {
+    let show = symbolsItem.isCollapsed
+    NSAnimationContext.runAnimationGroup { context in
+      context.duration = 0.2
+      symbolsItem.animator().isCollapsed = !show
+    }
+    UserDefaults.standard.set(show, forKey: PreferenceKey.symbolsVisible)
+    if show { symbols.focusSearch() } else { window?.makeFirstResponder(textView) }
+  }
   private var viewGroup: NSToolbarItemGroup?
 
   func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-    [.flexibleSpace, Self.viewItem]
+    [.flexibleSpace, Self.viewItem, Self.symbolsToolbarItem]
   }
 
   func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -1206,6 +1238,17 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
     _ toolbar: NSToolbar, itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
     willBeInsertedIntoToolbar flag: Bool
   ) -> NSToolbarItem? {
+    if itemIdentifier == Self.symbolsToolbarItem {
+      let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+      item.image = NSImage(systemSymbolName: "sum", accessibilityDescription: "Symbols")
+      item.label = "Symbols"
+      item.paletteLabel = "Symbols"
+      item.toolTip = "Show or hide symbols and math structures (⌥⌘T)"
+      item.target = self
+      item.action = #selector(toggleSymbols(_:))
+      item.isBordered = true
+      return item
+    }
     guard itemIdentifier == Self.viewItem else { return nil }
     let images = [
       NSImage(systemSymbolName: "doc.richtext", accessibilityDescription: "Writing")!,
@@ -1381,6 +1424,8 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
       menuItem.state = mode == .source ? .on : .off
     case #selector(toggleStatus(_:)):
       menuItem.state = statusVisible ? .on : .off
+    case #selector(toggleSymbols(_:)):
+      menuItem.title = symbolsVisible ? "Hide Symbols" : "Show Symbols"
     case #selector(zoomIn(_:)):
       return zoomPercent < 400
     case #selector(zoomOut(_:)):

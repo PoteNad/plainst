@@ -13,6 +13,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     NotificationCenter.default.addObserver(
       self, selector: #selector(preferencesDidChange), name: .editorDefaultsDidChange, object: nil)
     Editor.engineQueue.async { Engine.warmUp() }
+    #if PLAINST_CHECKS
+      // Automated checks run in the background so they never take keyboard focus from the user.
+      if AppChecks.isChecking { return }
+    #endif
     NSApp.activate(ignoringOtherApps: true)
   }
 
@@ -163,6 +167,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let view = menu("View")
     add(view, "Writing", #selector(Editor.showWriting(_:)), "1")
     add(view, "Source", #selector(Editor.showSource(_:)), "2")
+    view.addItem(.separator())
+    add(view, "Show Symbols", #selector(Editor.toggleSymbols(_:)), "t", modifiers: [.command, .option])
     view.addItem(.separator())
     add(view, "Zoom In", #selector(Editor.zoomIn(_:)), "+")
     add(view, "Zoom Out", #selector(Editor.zoomOut(_:)), "-")

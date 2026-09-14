@@ -10,6 +10,7 @@ enum PreferenceKey {
   static let writingTools = "writingTools"
   static let completions = "completions"
   static let autoPair = "autoPair"
+  static let symbolsVisible = "symbolsVisible"
 }
 
 enum AppAppearance: String, CaseIterable {
