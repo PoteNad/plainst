@@ -1,0 +1,45 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Select the newest Xcode
+        run: |
+          XCODE="$(ls -d /Applications/Xcode*.app | sort -V | tail -n 1)"
+          sudo xcode-select -s "$XCODE/Contents/Developer"
+          xcodebuild -version
+          printf 'macOS SDK %s\n' "$(xcrun --sdk macosx --show-sdk-version)"
+
+      - name: Test
+        run: ./scripts/check.sh
+
+      - name: Build and package
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          ./scripts/release.sh "$VERSION"
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          gh release create "$GITHUB_REF_NAME" \
+            "dist/Plainst-$VERSION-macOS.zip" \
+            "dist/Plainst-$VERSION-macOS.zip.sha256" \
+            "dist/Plainst-macOS.zip" \
+            "dist/Plainst-$VERSION-macOS.dmg" \
+            "dist/Plainst-$VERSION-macOS.dmg.sha256" \
+            "dist/Plainst-macOS.dmg" \
+            --generate-notes \
+            --title "Plainst $VERSION"

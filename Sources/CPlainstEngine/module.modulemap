@@ -1,0 +1,5 @@
+module CPlainstEngine [system] {
+  header "plainst_engine.h"
+  link "plainst_engine"
+  export *
+}

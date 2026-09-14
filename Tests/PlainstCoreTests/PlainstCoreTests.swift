@@ -1,0 +1,180 @@
+import Foundation
+import Testing
+
+@testable import PlainstCore
+
+@Suite struct FileRoundTrip {
+  @Test(arguments: [
+    "= Title\n\nCafé $x^2$ 中文 👩🏽‍💻\n",
+    "= Title\r\n\r\nWindows line endings\r\n",
+    "Mixed\r\nline\nendings\rremain unchanged",
+    "\u{FEFF}= With a byte order mark\n",
+    "No trailing newline",
+    "",
+  ])
+  func openingAndSavingIsByteIdentical(_ content: String) throws {
+    let data = Data(content.utf8)
+    let file = try TextFile(data: data)
+    #expect(try file.data() == data)
+  }
+
+  @Test func editingMixedLineEndingsUsesTheDetectedStyle() throws {
+    let data = Data("one\r\ntwo\r\nthree\n".utf8)
+    var file = try TextFile(data: data)
+    #expect(file.hasMixedLineEndings)
+    file.text += "four\n"
+    #expect(try file.data() == Data("one\r\ntwo\r\nthree\r\nfour\r\n".utf8))
+  }
+}
+
+@Suite struct Outline {
+  @Test func findsSupportedMarkup() {
+    let text = "= Notes\n\nA *bold* _word_ and $x$.\n\n$ y = m x + b $\n\n- item\n+ one\n"
+    let kinds = Set(Engine.outline(text).map(\.kind))
+    #expect(kinds.isSuperset(of: [.heading, .strong, .emph, .math, .list, .enum]))
+    let display = Engine.outline(text).first { $0.kind == .math && $0.block }
+    #expect(display.map { (text as NSString).substring(with: $0.range) } == "$ y = m x + b $")
+  }
+
+  @Test func compilesAndExports() {
+    let result = Engine.compile("= Hello\n\nWorld $x$\n", pdf: true)
+    #expect(result.errors.isEmpty)
+    #expect(result.pages == 1)
+    #expect(result.pdf?.prefix(4) == Data("%PDF".utf8))
+  }
+
+  @Test func rendersEquations() throws {
+    let render = try Engine.renderMath(
+      "$a/b$", block: false, pixelsPerPoint: 2, color: (0, 0, 0, 255)
+    ).get()
+    #expect(render.image.width > 0)
+    #expect(render.baseline > 0 && render.baseline < render.size.height)
+  }
+}
+
+@Suite struct WritingPresentation {
+  let text = "= Title\n\nSome *bold* text.\n" as NSString
+
+  @Test func hidesMarkupAwayFromTheCaret() {
+    let elements = Engine.outline(text as String)
+    let away = Presentation.make(
+      text: text, elements: elements, selection: NSRange(location: 0, length: 0), mode: .writing)
+    // The caret is in the heading, so its marker shows; the strong delimiters are hidden.
+    #expect(!away.hidden.contains(0))
+    #expect(away.hidden.contains(14) && away.hidden.contains(19))
+
+    let inside = Presentation.make(
+      text: text, elements: elements, selection: NSRange(location: 16, length: 0), mode: .writing)
+    #expect(inside.hidden.contains(0) && inside.hidden.contains(1))
+    #expect(!inside.hidden.contains(14) && !inside.hidden.contains(19))
+  }
+
+  @Test func sourceModeHidesNothing() {
+    let presentation = Presentation.make(
+      text: text, elements: Engine.outline(text as String),
+      selection: NSRange(location: 30, length: 0), mode: .source)
+    #expect(presentation.hidden.isEmpty && presentation.replacements.isEmpty)
+    #expect(presentation.runs.map(\.range.length).reduce(0, +) == text.length)
+  }
+
+  @Test func equationsStayVisibleUntilRendered() {
+    let text = "Let $x$ be\n" as NSString
+    let elements = Engine.outline(text as String)
+    let pending = Presentation.make(
+      text: text, elements: elements, selection: NSRange(location: 0, length: 0), mode: .writing)
+    #expect(pending.replacements.isEmpty && pending.hidden.isEmpty)
+    let rendered = Presentation.make(
+      text: text, elements: elements, selection: NSRange(location: 0, length: 0), mode: .writing,
+      canRenderMath: { _ in true })
+    #expect(rendered.replacements[4] == .math(source: "$x$", block: false, scale: 1))
+    #expect(rendered.hidden.contains(5) && rendered.hidden.contains(6))
+  }
+
+  @Test func listsShowBulletsAndNumbers() {
+    let text = "- a\n  - b\n+ one\n+ two\n" as NSString
+    let presentation = Presentation.make(
+      text: text, elements: Engine.outline(text as String),
+      selection: NSRange(location: text.length, length: 0), mode: .writing)
+    #expect(presentation.replacements[0] == .text("•"))
+    #expect(presentation.replacements[6] == .text("‣"))
+    #expect(presentation.replacements[16] == .text("2."))
+  }
+
+  @Test func reportsChangedRuns() {
+    let a = "one *two* three" as NSString
+    let b = "one *two* three!" as NSString
+    let old = Presentation.make(
+      text: a, elements: Engine.outline(a as String), selection: NSRange(), mode: .writing)
+    let new = Presentation.make(
+      text: b, elements: Engine.outline(b as String), selection: NSRange(), mode: .writing)
+    let changed = Presentation.changedRange(old: old.runs, new: new.runs, newLength: b.length)
+    #expect(changed != nil)
+    #expect(Presentation.changedRange(old: old.runs, new: old.runs, newLength: a.length) == nil)
+  }
+}
+
+@Suite struct FormattingCommands {
+  func valid(_ text: String) -> Bool { Engine.compile(text, pdf: false).errors.isEmpty }
+
+  @Test func togglesBold() {
+    let text = "make this bold" as NSString
+    let edit = Formatting.toggle(
+      .strong, text: text, selection: NSRange(location: 5, length: 5),
+      elements: Engine.outline(text as String))
+    let bold = edit.applied(to: text as String)
+    #expect(bold == "make *this* bold")
+    #expect(valid(bold))
+    let undo = Formatting.toggle(
+      .strong, text: bold as NSString, selection: edit.selection,
+      elements: Engine.outline(bold))
+    #expect(undo.applied(to: bold) == "make this bold")
+  }
+
+  @Test func trimsWhitespaceBeforeWrapping() {
+    let text = "a word here" as NSString
+    let edit = Formatting.toggle(
+      .emph, text: text, selection: NSRange(location: 1, length: 6), elements: [])
+    #expect(edit.applied(to: text as String) == "a _word_ here")
+  }
+
+  @Test func setsHeadings() {
+    let text = "Title\nbody" as NSString
+    let edit = Formatting.setHeading(level: 2, text: text, selection: NSRange(location: 2, length: 0))
+    #expect(edit.applied(to: text as String) == "== Title\nbody")
+    let body = Formatting.setHeading(
+      level: 0, text: "== Title\nbody" as NSString, selection: NSRange(location: 4, length: 0))
+    #expect(body.applied(to: "== Title\nbody") == "Title\nbody")
+  }
+
+  @Test func togglesLists() {
+    let text = "one\ntwo\n" as NSString
+    let edit = Formatting.toggleList(.bullet, text: text, selection: NSRange(location: 0, length: 7))
+    let list = edit.applied(to: text as String)
+    #expect(list == "- one\n- two\n")
+    #expect(valid(list))
+    let back = Formatting.toggleList(
+      .bullet, text: list as NSString, selection: NSRange(location: 0, length: 11))
+    #expect(back.applied(to: list) == "one\ntwo\n")
+  }
+
+  @Test func continuesAndEndsLists() {
+    let text = "+ first" as NSString
+    let edit = Formatting.newline(text: text, selection: NSRange(location: 7, length: 0))
+    #expect(edit?.applied(to: text as String) == "+ first\n+ ")
+    let ended = Formatting.newline(
+      text: "+ first\n+ " as NSString, selection: NSRange(location: 10, length: 0))
+    #expect(ended?.applied(to: "+ first\n+ ") == "+ first\n")
+    #expect(Formatting.newline(text: "plain" as NSString, selection: NSRange(location: 5, length: 0)) == nil)
+  }
+
+  @Test func insertsEquations() {
+    let text = "Energy E = m c^2 here" as NSString
+    let inline = Formatting.insertEquation(
+      block: false, text: text, selection: NSRange(location: 7, length: 9))
+    #expect(inline.applied(to: text as String) == "Energy $E = m c^2$ here")
+    let block = Formatting.insertEquation(
+      block: true, text: "ab" as NSString, selection: NSRange(location: 1, length: 0))
+    #expect(block.applied(to: "ab") == "a\n$  $\nb")
+    #expect(valid(inline.applied(to: text as String)))
+  }
+}

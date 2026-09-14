@@ -1,0 +1,237 @@
+import Foundation
+
+/// A single replacement plus where the selection should end up afterwards.
+public struct TextEdit: Equatable, Sendable {
+  public var range: NSRange
+  public var replacement: String
+  public var selection: NSRange
+
+  public init(range: NSRange, replacement: String, selection: NSRange) {
+    self.range = range
+    self.replacement = replacement
+    self.selection = selection
+  }
+
+  /// Applies the edit to a string, for tests and previews.
+  public func applied(to text: String) -> String {
+    (text as NSString).replacingCharacters(in: range, with: replacement)
+  }
+}
+
+/// Formatting commands expressed as plain-text edits, so every command writes ordinary Typst.
+public enum Formatting {
+  public enum Inline: Sendable {
+    case strong, emph, code
+
+    var delimiter: String {
+      switch self {
+      case .strong: "*"
+      case .emph: "_"
+      case .code: "`"
+      }
+    }
+
+    var kind: OutlineElement.Kind {
+      switch self {
+      case .strong: .strong
+      case .emph: .emph
+      case .code: .raw
+      }
+    }
+  }
+
+  /// Wraps the selection in delimiters, or removes them when the selection is already formatted.
+  public static func toggle(
+    _ inline: Inline, text: NSString, selection: NSRange, elements: [OutlineElement]
+  ) -> TextEdit {
+    let enclosing = elements.last { element in
+      element.kind == inline.kind && !element.block && element.markers.count == 2
+        && element.range.location <= selection.location
+        && NSMaxRange(selection) <= NSMaxRange(element.range)
+    }
+    if let element = enclosing {
+      let open = element.markers[0]
+      let close = element.markers[1]
+      let innerRange = NSRange(
+        location: NSMaxRange(open), length: max(0, close.location - NSMaxRange(open)))
+      let inner = text.substring(with: innerRange)
+      let location = max(element.range.location, selection.location - open.length)
+      let length = min(selection.length, (inner as NSString).length)
+      return TextEdit(
+        range: element.range, replacement: inner,
+        selection: NSRange(location: location, length: length))
+    }
+
+    var range = selection
+    let whitespace = CharacterSet.whitespacesAndNewlines
+    while range.length > 0,
+      let scalar = UnicodeScalar(text.character(at: range.location)), whitespace.contains(scalar)
+    {
+      range.location += 1
+      range.length -= 1
+    }
+    while range.length > 0,
+      let scalar = UnicodeScalar(text.character(at: NSMaxRange(range) - 1)),
+      whitespace.contains(scalar)
+    {
+      range.length -= 1
+    }
+    let d = inline.delimiter
+    let selected = text.substring(with: range)
+    return TextEdit(
+      range: range, replacement: d + selected + d,
+      selection: NSRange(location: range.location + 1, length: range.length))
+  }
+
+  /// The full lines touched by the selection.
+  static func lines(_ text: NSString, _ selection: NSRange) -> NSRange {
+    var range = selection
+    // A selection ending at the start of a line does not include that line.
+    if range.length > 0, NSMaxRange(range) <= text.length,
+      text.character(at: NSMaxRange(range) - 1) == 0x0A
+    {
+      range.length -= 1
+    }
+    return text.lineRange(for: range)
+  }
+
+  /// Rewrites each selected line with `transform`, keeping line endings intact.
+  static func rewriteLines(
+    _ text: NSString, _ selection: NSRange, _ transform: ([String]) -> [String]
+  ) -> TextEdit {
+    let range = lines(text, selection)
+    var block = text.substring(with: range)
+    let trailingNewline = block.hasSuffix("\n")
+    if trailingNewline { block.removeLast() }
+    let original = block.components(separatedBy: "\n")
+    let replaced = transform(original).joined(separator: "\n") + (trailingNewline ? "\n" : "")
+    let newLength = (replaced as NSString).length - (trailingNewline ? 1 : 0)
+    let selectionResult: NSRange
+    if original.count == 1 {
+      // Keep the caret in place relative to the end of the line.
+      let delta = (replaced as NSString).length - range.length
+      let location = max(range.location, min(selection.location + delta, range.location + newLength))
+      selectionResult = NSRange(location: location, length: selection.length == 0 ? 0 : max(0, min(selection.length, newLength)))
+    } else {
+      selectionResult = NSRange(location: range.location, length: newLength)
+    }
+    return TextEdit(range: range, replacement: replaced, selection: selectionResult)
+  }
+
+  private static func split(_ line: String) -> (indent: String, marker: String?, body: String) {
+    let indent = String(line.prefix { $0 == " " || $0 == "\t" })
+    let rest = String(line.dropFirst(indent.count))
+    if let match = rest.range(of: #"^(=+|-|\+|\d+\.|/)( |$)"#, options: .regularExpression) {
+      let marker = String(rest[match]).trimmingCharacters(in: .whitespaces)
+      return (indent, marker, String(rest[match.upperBound...]))
+    }
+    return (indent, nil, rest)
+  }
+
+  /// Makes the selected lines headings of `level`, or body text when `level` is 0.
+  public static func setHeading(level: Int, text: NSString, selection: NSRange) -> TextEdit {
+    rewriteLines(text, selection) { lines in
+      lines.map { line in
+        let parts = split(line)
+        guard level > 0 else { return parts.marker?.hasPrefix("=") == true ? parts.body : line }
+        return String(repeating: "=", count: level) + " " + parts.body
+      }
+    }
+  }
+
+  public enum ListStyle: Sendable {
+    case bullet, numbered
+
+    var marker: String { self == .bullet ? "-" : "+" }
+  }
+
+  /// Turns the selected lines into list items, or back into paragraphs.
+  public static func toggleList(_ style: ListStyle, text: NSString, selection: NSRange) -> TextEdit {
+    rewriteLines(text, selection) { lines in
+      let content = lines.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+      let isMatch = { (marker: String?) -> Bool in
+        guard let marker else { return false }
+        return style == .bullet ? marker == "-" : (marker == "+" || marker.hasSuffix("."))
+      }
+      let removing = !content.isEmpty && content.allSatisfy { isMatch(split($0).marker) }
+      return lines.map { line in
+        let parts = split(line)
+        if removing { return parts.indent + parts.body }
+        if line.trimmingCharacters(in: .whitespaces).isEmpty && lines.count > 1 { return line }
+        return parts.indent + style.marker + " " + parts.body
+      }
+    }
+  }
+
+  /// Inserts an equation around the selection.
+  public static func insertEquation(block: Bool, text: NSString, selection: NSRange) -> TextEdit {
+    let selected = text.substring(with: selection)
+    guard block else {
+      let caret = selection.length == 0
+        ? NSRange(location: selection.location + 1, length: 0)
+        : NSRange(location: selection.location + 1, length: selection.length)
+      return TextEdit(range: selection, replacement: "$" + selected + "$", selection: caret)
+    }
+    let before = selection.location > 0 ? text.character(at: selection.location - 1) : 0x0A
+    let after = NSMaxRange(selection) < text.length ? text.character(at: NSMaxRange(selection)) : 0x0A
+    let prefix = before == 0x0A ? "" : "\n"
+    let suffix = after == 0x0A ? "" : "\n"
+    let body = "$ " + selected + " $"
+    let location = selection.location + (prefix as NSString).length + 2
+    return TextEdit(
+      range: selection, replacement: prefix + body + suffix,
+      selection: NSRange(location: location, length: selection.length))
+  }
+
+  /// Continues a list when Return is pressed at the end of an item, or ends it on an empty item.
+  public static func newline(text: NSString, selection: NSRange) -> TextEdit? {
+    guard selection.length == 0 else { return nil }
+    let line = text.lineRange(for: selection)
+    var content = text.substring(with: line)
+    if content.hasSuffix("\n") { content.removeLast() }
+    let parts = split(content)
+    guard let marker = parts.marker, !marker.hasPrefix("=") else { return nil }
+    let markerEnd = line.location + (parts.indent as NSString).length + (marker as NSString).length
+    guard selection.location > markerEnd else { return nil }
+    if parts.body.trimmingCharacters(in: .whitespaces).isEmpty {
+      let range = NSRange(location: line.location, length: (content as NSString).length)
+      return TextEdit(
+        range: range, replacement: "", selection: NSRange(location: line.location, length: 0))
+    }
+    var next = marker
+    if marker.hasSuffix("."), let number = Int(marker.dropLast()) { next = "\(number + 1)." }
+    let insertion = "\n" + parts.indent + next + " "
+    return TextEdit(
+      range: selection, replacement: insertion,
+      selection: NSRange(location: selection.location + (insertion as NSString).length, length: 0))
+  }
+
+  /// Indents or outdents list items by two spaces.
+  public static func indentList(text: NSString, selection: NSRange, outdent: Bool) -> TextEdit? {
+    let range = lines(text, selection)
+    let block = text.substring(with: range)
+    let items = block.split(separator: "\n", omittingEmptySubsequences: false)
+    let isList = items.contains { split(String($0)).marker.map { !$0.hasPrefix("=") } ?? false }
+    guard isList else { return nil }
+    return rewriteLines(text, selection) { lines in
+      lines.map { line in
+        guard split(line).marker.map({ !$0.hasPrefix("=") }) == true else { return line }
+        if outdent {
+          if line.hasPrefix("  ") { return String(line.dropFirst(2)) }
+          if line.hasPrefix(" ") || line.hasPrefix("\t") { return String(line.dropFirst()) }
+          return line
+        }
+        return "  " + line
+      }
+    }
+  }
+
+  /// Counts words the way a reader would, ignoring markup punctuation.
+  public static func wordCount(_ text: String) -> Int {
+    var count = 0
+    text.enumerateSubstrings(in: text.startIndex..<text.endIndex, options: [.byWords, .substringNotRequired]) { _, _, _, _ in
+      count += 1
+    }
+    return count
+  }
+}

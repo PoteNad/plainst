@@ -1,0 +1,23 @@
+[package]
+name = "plainst-engine"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+typst = "=0.15.1"
+typst-syntax = "=0.15.1"
+typst-pdf = "=0.15.1"
+typst-render = "=0.15.1"
+typst-layout = "=0.15.1"
+typst-kit = { version = "=0.15.1", default-features = false, features = ["scan-fonts", "embedded-fonts", "datetime"] }
+typst-assets = { version = "=0.15.1", features = ["fonts"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
