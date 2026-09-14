@@ -250,7 +250,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
   }
 
   @objc private func showGuide(_ sender: Any?) {
-    (NSDocumentController.shared as? PlainstDocumentController)?.openUntitled(text: Guide.text)
+    (NSDocumentController.shared as? PlainstDocumentController)?.openUntitled(text: Guide.text, name: "Plainst Guide")
   }
 
   @objc private func openTypstDocs(_ sender: Any?) {

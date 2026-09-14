@@ -276,11 +276,16 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
     }
   }
 
-  private func selectionChanged() {
+  /// True while AppKit tracks a mouse press in the text view.
+  var isTrackingMouse = false
+
+  func selectionChanged() {
     flushPendingRestyle()
-    guard !textView.hasMarkedText() else { return }
-    refreshPresentation()
     updateStatus()
+    // Changing layout under the pointer during a click, double-click or drag makes AppKit
+    // select the wrong text, so wait until the button is released.
+    guard !textView.hasMarkedText(), !isTrackingMouse else { return }
+    refreshPresentation()
   }
 
   func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
@@ -706,8 +711,9 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
       if let block = mathBlock(containing: characters.location) {
         let card = cardMetrics
         if block.rendered {
-          extraTop += card.gap + card.pad
-          extraBottom += card.pad + card.caption + card.gap
+          // A rendered display equation reads like typeset math, with room for its hover highlight.
+          extraTop += card.gap + card.caption
+          extraBottom += card.gap + card.caption
         } else {
           if NSLocationInRange(block.lines.location, characters) {
             extraTop += card.gap + card.pad + card.field
@@ -763,7 +769,7 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
       previewGap: (em * 0.7).rounded())
   }
 
-  private var hoveredBlock: Int?
+  private var hoveredMath: Int?
 
   func mathBlock(containing location: Int) -> MathBlock? {
     let blocks = presentation.mathBlocks
@@ -800,43 +806,56 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
     return (card, field)
   }
 
-  /// Draws equation cards and highlights behind inline equation source.
+  /// Draws the source card of an equation being edited, highlights behind inline equation
+  /// source, and a quiet highlight on the rendered equation under the pointer.
   func drawDecorations(forGlyphRange glyphs: NSRange, at origin: NSPoint) {
     guard concealing else { return }
     let characters = layout.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
     let accent = NSColor.controlAccentColor
     let em = bodySize
-    for block in presentation.mathBlocks where NSIntersectionRange(block.lines, characters).length > 0 {
+    for block in presentation.mathBlocks
+    where !block.rendered && NSIntersectionRange(block.lines, characters).length > 0 {
       guard let geometry = cardGeometry(block) else { continue }
       let card = geometry.card.offsetBy(dx: origin.x, dy: origin.y)
-      let hovered = hoveredBlock == block.range.location
-      let path = NSBezierPath(roundedRect: card.insetBy(dx: 0.5, dy: 0.5), xRadius: em * 0.55, yRadius: em * 0.55)
-      accent.withAlphaComponent(block.active ? 0.07 : hovered ? 0.08 : 0.045).setFill()
+      let path = NSBezierPath(
+        roundedRect: card.insetBy(dx: 0.5, dy: 0.5), xRadius: em * 0.55, yRadius: em * 0.55)
+      accent.withAlphaComponent(block.active ? 0.07 : 0.045).setFill()
       path.fill()
-      accent.withAlphaComponent(block.active || hovered ? 0.45 : 0.22).setStroke()
+      accent.withAlphaComponent(block.active ? 0.45 : 0.22).setStroke()
       path.lineWidth = 1
       path.stroke()
       if let field = geometry.field?.offsetBy(dx: origin.x, dy: origin.y) {
         let fieldPath = NSBezierPath(roundedRect: field, xRadius: em * 0.35, yRadius: em * 0.35)
         NSColor.textBackgroundColor.setFill()
         fieldPath.fill()
-        if block.active {
-          fieldPath.lineWidth = 2
-          accent.setStroke()
-        } else {
-          fieldPath.lineWidth = 1
-          NSColor.separatorColor.setStroke()
-        }
+        fieldPath.lineWidth = block.active ? 2 : 1
+        (block.active ? accent : NSColor.separatorColor).setStroke()
         fieldPath.stroke()
-      } else if hovered {
-        let caption = NSAttributedString(
-          string: "Click to edit",
-          attributes: [
-            .font: NSFont.systemFont(ofSize: max(10, em * 0.62)),
-            .foregroundColor: NSColor.secondaryLabelColor,
-          ])
-        let size = caption.size()
-        caption.draw(at: NSPoint(x: card.maxX - size.width - em * 0.8, y: card.maxY - size.height - em * 0.35))
+      }
+    }
+    if let hovered = hoveredMath, NSLocationInRange(hovered, characters),
+      var rect = renderedMathRect(at: hovered)
+    {
+      rect = rect.offsetBy(dx: origin.x, dy: origin.y)
+      let isBlock = mathBlock(containing: hovered)?.range.location == hovered
+      let highlight = rect.insetBy(dx: -em * (isBlock ? 0.6 : 0.25), dy: -em * (isBlock ? 0.3 : 0.12))
+      NSColor.labelColor.withAlphaComponent(0.08).setFill()
+      NSBezierPath(roundedRect: highlight, xRadius: em * 0.3, yRadius: em * 0.3).fill()
+      if isBlock,
+        let pencil = NSImage(systemSymbolName: "pencil", accessibilityDescription: "Edit equation")?
+          .withSymbolConfiguration(.init(pointSize: em * 0.7, weight: .regular))
+      {
+        let tinted = NSImage(size: pencil.size, flipped: false) { bounds in
+          pencil.draw(in: bounds)
+          NSColor.secondaryLabelColor.set()
+          bounds.fill(using: .sourceAtop)
+          return true
+        }
+        tinted.draw(
+          in: NSRect(
+            x: highlight.maxX + em * 0.35, y: highlight.midY - pencil.size.height / 2,
+            width: pencil.size.width, height: pencil.size.height),
+          from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
       }
     }
     for range in presentation.inlineMathSources where NSIntersectionRange(range, characters).length > 0 {
@@ -852,22 +871,74 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
     }
   }
 
-  /// Places the cursor in an equation when its card is clicked outside the source field.
+  /// Where a rendered equation is drawn, in text container coordinates.
+  private func renderedMathRect(at index: Int) -> NSRect? {
+    guard case .math = presentation.replacements[index], let metrics = metrics(forReplacementAt: index)
+    else { return nil }
+    let glyph = layout.glyphIndexForCharacter(at: index)
+    guard glyph < layout.numberOfGlyphs else { return nil }
+    let line = layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+    let location = layout.location(forGlyphAt: glyph)
+    return NSRect(
+      x: line.minX + location.x, y: line.minY + location.y - metrics.baseline,
+      width: metrics.size.width, height: metrics.size.height)
+  }
+
+  /// The rendered equation under a point, identified by its first character.
+  private func renderedMath(at point: NSPoint) -> Int? {
+    let origin = textView.textContainerOrigin
+    let local = NSPoint(x: point.x - origin.x, y: point.y - origin.y)
+    guard local.y >= 0, layout.numberOfGlyphs > 0 else { return nil }
+    let glyph = min(layout.glyphIndex(for: local, in: container), layout.numberOfGlyphs - 1)
+    let line = layout.characterRange(
+      forGlyphRange: layout.glyphRange(
+        forCharacterRange: storage.mutableString.lineRange(
+          for: NSRange(location: layout.characterIndexForGlyph(at: glyph), length: 0)),
+        actualCharacterRange: nil), actualGlyphRange: nil)
+    let keys = replacementKeys
+    var index = keys.lowerBound(line.location)
+    while index < keys.count, keys[index] < NSMaxRange(line) {
+      let key = keys[index]
+      index += 1
+      guard let rect = renderedMathRect(at: key) else { continue }
+      if let block = mathBlock(containing: key), block.range.location == key,
+        let card = cardGeometry(block)?.card, card.contains(local)
+      {
+        return key
+      }
+      if rect.insetBy(dx: -4, dy: -3).contains(local) { return key }
+    }
+    return nil
+  }
+
+  /// Opens an equation for editing when its rendering, or its card outside the source field, is
+  /// clicked, putting the cursor at the end of its content.
   func handleClick(at point: NSPoint, event: NSEvent) -> Bool {
-    guard concealing, event.clickCount == 1, event.modifierFlags.intersection([.shift, .command]).isEmpty,
-      let block = block(at: point)
+    guard concealing, event.clickCount == 1,
+      event.modifierFlags.intersection([.shift, .command]).isEmpty
     else { return false }
-    if let field = cardGeometry(block)?.field?.offsetBy(
-      dx: textView.textContainerOrigin.x, dy: textView.textContainerOrigin.y), field.contains(point)
+    let range: NSRange
+    if let rendered = renderedMath(at: point),
+      let element = elements.first(where: { $0.kind == .math && $0.range.location == rendered })
     {
+      range = element.range
+    } else if let block = block(at: point), !block.rendered {
+      if let field = cardGeometry(block)?.field?.offsetBy(
+        dx: textView.textContainerOrigin.x, dy: textView.textContainerOrigin.y), field.contains(point)
+      {
+        return false
+      }
+      range = block.range
+    } else {
       return false
     }
-    // Put the cursor at the end of the equation's content, before its closing dollar sign.
     let text = storage.mutableString
-    var end = NSMaxRange(block.range) - 1
-    while end > block.range.location + 1, [0x20, 0x09, 0x0A].contains(text.character(at: end - 1)) {
+    var end = NSMaxRange(range) - 1
+    while end > range.location + 1, [0x20, 0x09, 0x0A].contains(text.character(at: end - 1)) {
       end -= 1
     }
+    hoveredMath = nil
+    textView.toolTip = nil
     window?.makeFirstResponder(textView)
     textView.setSelectedRange(NSRange(location: end, length: 0))
     return true
@@ -876,9 +947,8 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
   private func block(at point: NSPoint) -> MathBlock? {
     let origin = textView.textContainerOrigin
     let local = NSPoint(x: point.x - origin.x, y: point.y - origin.y)
-    guard local.y >= 0 else { return nil }
-    let glyph = layout.glyphIndex(for: local, in: container)
-    guard glyph < layout.numberOfGlyphs else { return nil }
+    guard local.y >= 0, layout.numberOfGlyphs > 0 else { return nil }
+    let glyph = min(layout.glyphIndex(for: local, in: container), layout.numberOfGlyphs - 1)
     let character = layout.characterIndexForGlyph(at: glyph)
     for candidate in [character, character - 1, character + 1] where candidate >= 0 {
       if let block = mathBlock(containing: candidate), let card = cardGeometry(block)?.card,
@@ -890,12 +960,20 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
     return nil
   }
 
+  #if PLAINST_CHECKS
+    /// Shows the hover highlight on the equation starting at `index`, for snapshots.
+    func showHover(at index: Int) {
+      hoveredMath = renderedMathRect(at: index) == nil ? nil : index
+      textView.needsDisplay = true
+    }
+  #endif
+
   func mouseMoved(to point: NSPoint?) {
-    let block = point.flatMap { self.block(at: $0) }
-    let hovered = block.flatMap { $0.rendered ? $0.range.location : nil }
+    let hovered = concealing ? point.flatMap { renderedMath(at: $0) } : nil
     if hovered != nil { NSCursor.pointingHand.set() }
-    guard hovered != hoveredBlock else { return }
-    hoveredBlock = hovered
+    guard hovered != hoveredMath else { return }
+    hoveredMath = hovered
+    textView.toolTip = hovered == nil ? nil : "Edit equation"
     textView.needsDisplay = true
   }
 
@@ -904,7 +982,8 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
   func updatePreview() {
     guard let math = presentation.activeMath, NSMaxRange(math.range) <= storage.length,
       math.range.length > 0, window?.firstResponder === textView,
-      textView.selectedRange().length == 0
+      NSMaxRange(textView.selectedRange()) <= NSMaxRange(math.range),
+      textView.selectedRange().location >= math.range.location
     else {
       preview.isHidden = true
       reservePreviewSpace(nil, height: 0)
@@ -1125,9 +1204,15 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
       labels: EditorMode.allCases.map(\.title), target: self, action: #selector(changeView(_:)))
     group.label = "View"
     group.paletteLabel = "View"
-    group.toolTip = "Switch between Writing and Source"
-    group.subitems[0].toolTip = "Writing — formatted text and rendered math (⌘1)"
-    group.subitems[1].toolTip = "Source — the Typst file exactly as saved (⌘2)"
+    // Each button describes the view it switches to; a group-wide tooltip would hide these.
+    let tips = [
+      "Writing: formatted text and rendered math (⌘1)",
+      "Source: the Typst file exactly as it is saved (⌘2)",
+    ]
+    for (item, tip) in zip(group.subitems, tips) { item.toolTip = tip }
+    if let control = group.view as? NSSegmentedControl {
+      for (segment, tip) in tips.enumerated() { control.setToolTip(tip, forSegment: segment) }
+    }
     group.selectedIndex = EditorMode.allCases.firstIndex(of: mode) ?? 0
     viewGroup = group
     return group

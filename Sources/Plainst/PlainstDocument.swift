@@ -17,6 +17,13 @@ final class PlainstDocument: NSDocument {
   nonisolated override class var preservesVersions: Bool { true }
 
   var currentText: String { editor?.text ?? file.text }
+  /// A name for an unsaved document that isn't a regular new document, such as the guide.
+  var untitledName: String?
+
+  override var displayName: String! {
+    get { fileURL == nil ? (untitledName ?? super.displayName) : super.displayName }
+    set { super.displayName = newValue }
+  }
 
   override var isDocumentEdited: Bool {
     if fileURL == nil && currentText.isEmpty { return false }
@@ -232,12 +239,15 @@ final class PlainstDocumentController: NSDocumentController {
   }
 
   /// Opens a new untitled document containing `text`, such as the syntax guide.
-  func openUntitled(text: String) {
+  func openUntitled(text: String, name: String? = nil) {
     do {
-      guard let document = try openUntitledDocumentAndDisplay(true) as? PlainstDocument else {
+      guard let document = try openUntitledDocumentAndDisplay(false) as? PlainstDocument else {
         return
       }
+      document.untitledName = name
+      document.makeWindowControllers()
       document.editor?.loadText(text)
+      document.showWindows()
     } catch {
       NSApp.presentError(error)
     }

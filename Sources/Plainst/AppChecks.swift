@@ -17,7 +17,7 @@ enum AppChecks {
   static var isChecking: Bool {
     [
       "PLAINST_LAUNCH_CHECK", "PLAINST_EDIT_CHECK", "PLAINST_PERF_CHECK",
-      "PLAINST_ROUNDTRIP_CHECK", "PLAINST_EXPORT_CHECK", "PLAINST_SNAPSHOT",
+      "PLAINST_ROUNDTRIP_CHECK", "PLAINST_EXPORT_CHECK", "PLAINST_SNAPSHOT", "PLAINST_INPUT_CHECK",
     ]
       .contains { environment[$0] != nil }
   }
@@ -238,20 +238,25 @@ enum AppChecks {
       @MainActor func type(_ text: String) { for c in text { key(String(c)) } }
       @MainActor func left() { key("\u{F702}", code: 123) }
       /// Clicks at a point in the text view's coordinates.
-      @MainActor func click(_ point: NSPoint) {
+      @MainActor func click(_ point: NSPoint, count: Int = 1, hold: Double = 0) {
         let location = view.convert(point, to: nil)
         let time = ProcessInfo.processInfo.systemUptime
         guard
           let down = NSEvent.mouseEvent(
             with: .leftMouseDown, location: location, modifierFlags: [], timestamp: time,
-            windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1,
+            windowNumber: window.windowNumber, context: nil, eventNumber: count, clickCount: count,
             pressure: 1),
           let up = NSEvent.mouseEvent(
             with: .leftMouseUp, location: location, modifierFlags: [], timestamp: time + 0.01,
-            windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1,
+            windowNumber: window.windowNumber, context: nil, eventNumber: count, clickCount: count,
             pressure: 0)
         else { fail("could not make a mouse event") }
-        NSApp.postEvent(up, atStart: false)
+        if hold > 0 {
+          // Release later, so AppKit tracks the press the way it does for a person.
+          DispatchQueue.main.asyncAfter(deadline: .now() + hold) { NSApp.postEvent(up, atStart: false) }
+        } else {
+          NSApp.postEvent(up, atStart: false)
+        }
         NSApp.sendEvent(down)
       }
 
@@ -316,7 +321,22 @@ enum AppChecks {
                         fail("typing in the card's field went elsewhere: \(editor.text.debugDescription)")
                       }
                       pass("clicking an equation card edits its source in place")
-                      finish()
+
+                      // Double-clicking a word in the source field selects that word.
+                      let word = (editor.text as NSString).range(of: "10")
+                      editor.layout.ensureLayout(for: editor.container)
+                      let glyphs = editor.layout.glyphRange(forCharacterRange: word, actualCharacterRange: nil)
+                      let rect = editor.layout.boundingRect(forGlyphRange: glyphs, in: editor.container)
+                      let point = NSPoint(x: origin.x + rect.midX, y: origin.y + rect.midY)
+                      click(point, count: 1)
+                      click(point, count: 2)
+                      after(0.5) {
+                        guard view.selectedRange() == word else {
+                          fail("double-clicking a word in the equation selected \(view.selectedRange()), not \(word)")
+                        }
+                        pass("double-clicking a word in an equation's source selects it")
+                        finish()
+                      }
                     }
                   }
                 }
@@ -414,6 +434,9 @@ enum AppChecks {
       }
       if let width = environment["PLAINST_WIDTH"].flatMap(Double.init) {
         window.setContentSize(NSSize(width: width, height: environment["PLAINST_HEIGHT"].flatMap(Double.init) ?? 760))
+      }
+      if let hover = environment["PLAINST_HOVER"].flatMap(Int.init) {
+        after(2) { editor.showHover(at: hover) }
       }
       if environment["PLAINST_TABS"] == "1" {
         window.makeKeyAndOrderFront(nil)

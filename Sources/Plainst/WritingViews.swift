@@ -120,12 +120,16 @@ final class WritingTextView: NSTextView {
     let point = convert(event.locationInWindow, from: nil)
     if let editor, editor.handleClick(at: point, event: event) { return }
     let belowText = isBelowText(point)
+    editor?.isTrackingMouse = true
     super.mouseDown(with: event)
+    editor?.isTrackingMouse = false
     // TextKit 1 maps clicks on the empty last line, or below all text, to the line above.
     // Put the cursor at the end instead, as TextEdit does.
     if belowText, selectedRange().length == 0, !event.modifierFlags.contains(.shift) {
       setSelectedRange(NSRange(location: textStorage?.length ?? 0, length: 0))
     }
+    // Apply reveal and preview changes held back while the button was down.
+    editor?.selectionChanged()
   }
 
   /// Whether a point is on the empty line after a final newline or below the last line.
