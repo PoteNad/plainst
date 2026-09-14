@@ -17,6 +17,8 @@ Plainst formats paragraphs, headings, bold, italic, inline code and code blocks,
 - Return continues a list and ends it on an empty item; Tab and Shift-Tab nest items.
 - Completions from Typst's own IDE engine for symbols, math functions, and code (⌥⎋ to ask), with snippet placeholders you can Tab through.
 - Automatic pairs for dollar signs, brackets, and quotes in code.
+- A symbols inspector (⌥⌘T) to search and insert Typst symbols and common math structures.
+- Settings for the default view, Writing text size, Source font, new document line endings, and each kind of typing assistance.
 - Live Typst diagnostics with underlines and a status bar menu, plus word and page counts.
 - Find and replace, spelling, zoom, light and dark appearances, and optional Apple Writing Tools that are off by default.
 - Opening and saving an unedited file keeps it byte-for-byte identical, including line endings and byte order marks.

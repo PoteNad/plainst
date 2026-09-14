@@ -9,7 +9,7 @@ extension UTType {
 
 @objc(PlainstDocument)
 final class PlainstDocument: NSDocument {
-  var file = TextFile()
+  var file = TextFile(lineEnding: AppPreferences.lineEnding)
   var editor: Editor?
 
   nonisolated override class var autosavesInPlace: Bool { true }

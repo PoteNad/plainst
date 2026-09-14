@@ -56,9 +56,9 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
 
   var concealing: Bool { mode == .writing }
   /// View points per Typst point, so the Writing view keeps the PDF's proportions.
-  var typstScale: CGFloat { 1.5 * CGFloat(zoomPercent) / 100 }
+  var typstScale: CGFloat { 1.5 * AppPreferences.writingSize * CGFloat(zoomPercent) / 100 }
   var bodySize: CGFloat { Engine.typstTextSize * typstScale }
-  var sourceSize: CGFloat { 13 * CGFloat(zoomPercent) / 100 }
+  var sourceSize: CGFloat { AppPreferences.sourceFontSize * CGFloat(zoomPercent) / 100 }
 
   private struct AttributeKey: Hashable {
     var style: TextStyle
@@ -1012,7 +1012,8 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
   // MARK: Equation preview
 
   func updatePreview() {
-    guard let math = presentation.activeMath, NSMaxRange(math.range) <= storage.length,
+    guard AppPreferences.equationPreviews, let math = presentation.activeMath,
+      NSMaxRange(math.range) <= storage.length,
       math.range.length > 0, window?.firstResponder === textView,
       NSMaxRange(textView.selectedRange()) <= NSMaxRange(math.range),
       textView.selectedRange().location >= math.range.location
@@ -1402,7 +1403,13 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
     textView.isContinuousSpellCheckingEnabled = UserDefaults.standard.bool(
       forKey: PreferenceKey.checkSpelling)
     updateWritingToolsBehavior()
-    DispatchQueue.main.async { [weak self] in self?.refreshEnvironment() }
+    if !AppPreferences.autoPair || !AppPreferences.completions { assistant.dismiss() }
+    DispatchQueue.main.async { [weak self] in
+      guard let self else { return }
+      self.refreshEnvironment()
+      // Text sizes and the Source font may have changed.
+      self.restyleEverything()
+    }
   }
 
   private func updateWritingToolsBehavior() {
