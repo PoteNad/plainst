@@ -90,8 +90,9 @@ final class SymbolsViewController: NSViewController, NSSearchFieldDelegate {
     footer.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
     footer.textColor = .secondaryLabelColor
     footer.lineBreakMode = .byTruncatingTail
-    footer.stringValue = "\(Engine.symbols.count) symbols. Click one to insert it."
-    footer.toolTip = "Outside an equation, symbols are inserted between dollar signs."
+    footer.alignment = .center
+    footer.stringValue = "\(Engine.symbols.count.formatted()) symbols"
+    footer.toolTip = "Click a symbol to insert it. Outside an equation, it goes between dollar signs."
     for view in [search, scroll, footer] {
       view.translatesAutoresizingMaskIntoConstraints = false
       root.addSubview(view)

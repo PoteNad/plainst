@@ -174,11 +174,35 @@ enum AppChecks {
       editor.loadText("= Preview\n\nSome text.\n")
       editor.togglePreview(nil)
       after(2.5) {
-        guard editor.previewVisible, editor.previewPane.hasDocument,
-          editor.previewPane.pdfView.document?.pageCount == 1
-        else { fail("the preview should show the typeset document") }
-        editor.togglePreview(nil)
+        guard editor.previewVisible, editor.previewPane.pages.count == 1,
+          editor.previewPane.renderedPageCount == 1
+        else { fail("the preview should show the typeset document: visible \(editor.previewVisible), \(editor.previewPane.pages.count) pages, \(editor.previewPane.renderedPageCount) rendered") }
         pass("the preview shows the typeset document")
+
+        // Editing the second page re-renders only that page, and clicks find the source.
+        editor.loadText("= Two pages\n\nFirst page.\n#pagebreak()\nSecond page.\n")
+        after(2.5) {
+          let pane = editor.previewPane
+          guard pane.pages.count == 2, pane.renderedPageCount == 2, let first = pane.image(ofPage: 0),
+            let second = pane.image(ofPage: 1)
+          else { fail("the preview should show two rendered pages, not \(pane.pages.count)") }
+          editor.textView.setSelectedRange(NSRange(location: editor.storage.length - 1, length: 0))
+          editor.textView.insertText(" More.", replacementRange: editor.textView.selectedRange())
+          after(2.5) {
+            guard pane.image(ofPage: 0) === first, let changed = pane.image(ofPage: 1), changed !== second else {
+              fail("editing the second page should re-render only the second page")
+            }
+            let text = editor.text
+            let word = (text as NSString).range(of: "Second")
+            let places = Engine.previewPositions(key: editor.engineKey, text: text, cursor: word.location + 2)
+            guard let place = places.first, place.page == 1 else { fail("no position for the second page's text") }
+            editor.textView.setSelectedRange(NSRange(location: 0, length: 0))
+            pane.click(page: place.page, point: CGPoint(x: place.point.x + 2, y: place.point.y - 3))
+            guard NSLocationInRange(editor.textView.selectedRange().location, word) else {
+              fail("clicking the preview should find the text: cursor at \(editor.textView.selectedRange()), expected \(word)")
+            }
+            editor.togglePreview(nil)
+            pass("preview updates re-render only changed pages, and clicking a page finds its source")
         editor.loadText(Guide.text)
         editor.toggleOutline(nil)
         after(0.5) {
@@ -196,6 +220,8 @@ enum AppChecks {
           editor.toggleOutline(nil)
           pass("the outline sidebar lists headings and follows the cursor")
           finish()
+        }
+          }
         }
       }
     }

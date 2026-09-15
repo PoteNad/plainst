@@ -4,7 +4,7 @@ use typst::syntax::Source;
 use typst_ide::{Completion, CompletionKind, IdeWorld};
 use typst_layout::PagedDocument;
 
-use crate::world::{LAST_DOCUMENT, MAIN_ID, PlainstWorld};
+use crate::world::{MAIN_ID, PlainstWorld};
 use crate::{Utf16Map, json_string};
 
 impl IdeWorld for PlainstWorld {
@@ -31,14 +31,14 @@ fn kind_name(kind: &CompletionKind) -> &'static str {
 /// Completions at a UTF-16 cursor position, as JSON:
 /// `{"from": <utf16>, "items": [{"kind", "label", "apply", "detail", "symbol"}]}`.
 /// Returns an empty item list when Typst has nothing to offer.
-pub fn complete_json(text: &str, cursor_utf16: usize, explicit: bool) -> String {
+pub fn complete_json(text: &str, cursor_utf16: usize, explicit: bool, key: u64) -> String {
     let source = Source::new(*MAIN_ID, text.to_owned());
     let Some(cursor) = source.lines().utf16_to_byte(cursor_utf16) else {
         return "{\"from\":0,\"items\":[]}".into();
     };
-    // Labels and references come from the last document that compiled.
-    let document = LAST_DOCUMENT.lock().unwrap_or_else(|e| e.into_inner());
-    complete_in(&source, cursor, explicit, document.as_ref())
+    // Labels and references come from the window's last document that compiled.
+    let compiled = crate::preview::get(key);
+    complete_in(&source, cursor, explicit, compiled.as_ref().map(|c| &c.document))
 }
 
 /// Completions in `source` at a byte cursor, using `document` for labels when there is one.

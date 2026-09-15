@@ -62,10 +62,11 @@ pub unsafe extern "C" fn plainst_compile(
     data: *const u8,
     len: usize,
     want_pdf: bool,
+    key: u64,
 ) -> PlainstBuffer {
     let source = unsafe { text(data, len) };
     guarded(|| {
-        let output = world::compile(&source, want_pdf);
+        let output = world::compile(&source, want_pdf, key);
         let mut out = b"PLC1".to_vec();
         out.extend_from_slice(&(output.json.len() as u32).to_le_bytes());
         out.extend_from_slice(output.json.as_bytes());
@@ -146,9 +147,54 @@ pub unsafe extern "C" fn plainst_complete(
     len: usize,
     cursor_utf16: usize,
     explicit: bool,
+    key: u64,
 ) -> PlainstBuffer {
     let source = unsafe { text(data, len) };
-    guarded(|| crate::complete_json(&source, cursor_utf16, explicit).into_bytes())
+    guarded(|| crate::complete_json(&source, cursor_utf16, explicit, key).into_bytes())
+}
+
+/// The page sizes and content hashes of a window's last good document.
+#[unsafe(no_mangle)]
+pub extern "C" fn plainst_preview_pages(key: u64) -> PlainstBuffer {
+    guarded(|| crate::pages_binary(key))
+}
+
+/// Renders a page of a window's last good document, if it still has the given hash.
+#[unsafe(no_mangle)]
+pub extern "C" fn plainst_render_page(
+    key: u64,
+    index: usize,
+    pixels_per_pt: f64,
+    hash_low: u64,
+    hash_high: u64,
+) -> PlainstBuffer {
+    let hash = (hash_high as u128) << 64 | hash_low as u128;
+    let scale = if pixels_per_pt.is_finite() { pixels_per_pt } else { 2.0 };
+    guarded(|| crate::render_page_binary(key, index, scale, hash))
+}
+
+/// The UTF-16 source offset under a click on a page, or -1.
+#[unsafe(no_mangle)]
+pub extern "C" fn plainst_jump_from_click(key: u64, page: usize, x_pt: f64, y_pt: f64) -> i64 {
+    std::panic::catch_unwind(|| crate::jump_from_click(key, page, x_pt, y_pt)).unwrap_or(-1)
+}
+
+/// Where the text at a cursor appears on the pages.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn plainst_preview_positions(
+    key: u64,
+    data: *const u8,
+    len: usize,
+    cursor_utf16: usize,
+) -> PlainstBuffer {
+    let source = unsafe { text(data, len) };
+    guarded(|| crate::positions_binary(key, &source, cursor_utf16))
+}
+
+/// Forgets the document kept for a window that closed.
+#[unsafe(no_mangle)]
+pub extern "C" fn plainst_forget(key: u64) {
+    let _ = std::panic::catch_unwind(|| crate::forget(key));
 }
 
 /// Every symbol name and its character, as UTF-8 JSON.

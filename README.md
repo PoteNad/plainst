@@ -6,7 +6,7 @@ Plainst is a small, native macOS editor for single-file [Typst](https://typst.ap
 
 - **Writing** (⌘1) shows the document formatted with Typst's own fonts and equations rendered by the Typst compiler. Markup such as `*` or `=` is hidden until the cursor reaches it, and clicking an equation reveals its source with a live preview underneath.
 - **Source** (⌘2) shows the file exactly as it is saved. Both views edit the same text, so switching never changes the document.
-- **Preview** (⌥⌘P) shows the typeset document beside the text, updated as you type, so `#set` rules and other code show their effect.
+- **Preview** (⌥⌘P) shows the typeset document beside the text, updated as you type, so `#set` rules and other code show their effect. Only changed pages are redrawn, the preview follows the cursor, and clicking a page puts the cursor on that text.
 - **Export as PDF** and **Print** typeset the document with the bundled Typst compiler, so the output matches `typst compile`.
 
 Plainst formats paragraphs, headings, bold, italic, inline code and code blocks, bulleted, numbered, and term lists, dashes and other shorthands, and inline and display math. Anything else, such as `#set` rules or function calls, is kept exactly as written and shown in grey. Images, bibliographies, multiple files, and packages are intentionally unsupported.

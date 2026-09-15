@@ -176,8 +176,9 @@ final class TypingAssistant {
     generation += 1
     let generation = self.generation
     let location = caret.location
+    let key = editor.engineKey
     Self.queue.async { [weak self] in
-      let list = Engine.completions(snapshot, cursor: location, explicit: explicit)
+      let list = Engine.completions(snapshot, cursor: location, explicit: explicit, key: key)
       DispatchQueue.main.async {
         MainActor.assumeIsolated {
           guard let self, generation == self.generation, self.editor.text == snapshot,

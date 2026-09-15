@@ -53,6 +53,13 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
   private var outlineItem: NSSplitViewItem!
   private var sidebarOutlineVersion = -1
   let previewPane = PreviewViewController()
+  /// Identifies this window's compiled document in the engine.
+  let engineKey: UInt64 = {
+    Editor.nextEngineKey += 1
+    return Editor.nextEngineKey
+  }()
+  private static var nextEngineKey: UInt64 = 0
+  private var previewSyncGeneration = 0
   private var previewItem: NSSplitViewItem!
   /// The bracket beside the cursor and its partner, while highlighted.
   var highlightedBrackets: (NSRange, NSRange)?
@@ -171,28 +178,31 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
     let documentController = NSViewController()
     documentController.view = root
     symbols.editor = self
-    let split = NSSplitViewController()
+    let split = EditorSplitViewController()
     // Headings sit in a sidebar, like Preview's table of contents.
     outlineSidebar.editor = self
     outlineItem = NSSplitViewItem(sidebarWithViewController: outlineSidebar)
     outlineItem.canCollapse = true
     outlineItem.minimumThickness = 180
     outlineItem.maximumThickness = 340
-    outlineItem.isCollapsed = !UserDefaults.standard.bool(forKey: PreferenceKey.outlineVisible)
+    outlineItem.isCollapsed = (isAutomatedCheck || !UserDefaults.standard.bool(forKey: PreferenceKey.outlineVisible))
     split.addSplitViewItem(outlineItem)
     split.addSplitViewItem(NSSplitViewItem(viewController: documentController))
     // The typeset preview sits between the text and the symbols, like a second page view.
+    previewPane.editor = self
+    previewPane.key = engineKey
     previewItem = NSSplitViewItem(viewController: previewPane)
+    split.previewItem = previewItem
     previewItem.canCollapse = true
     previewItem.minimumThickness = 260
     previewItem.holdingPriority = .init(rawValue: 255)
-    previewItem.isCollapsed = !UserDefaults.standard.bool(forKey: PreferenceKey.previewVisible)
+    previewItem.isCollapsed = (isAutomatedCheck || !UserDefaults.standard.bool(forKey: PreferenceKey.previewVisible))
     split.addSplitViewItem(previewItem)
     symbolsItem = NSSplitViewItem(inspectorWithViewController: symbols)
     symbolsItem.canCollapse = true
     symbolsItem.minimumThickness = 268
     symbolsItem.maximumThickness = 380
-    symbolsItem.isCollapsed = !UserDefaults.standard.bool(forKey: PreferenceKey.symbolsVisible)
+    symbolsItem.isCollapsed = (isAutomatedCheck || !UserDefaults.standard.bool(forKey: PreferenceKey.symbolsVisible))
     split.addSplitViewItem(symbolsItem)
     if !isAutomatedCheck { split.splitView.autosaveName = "PlainstEditorSplit" }
     window.contentViewController = split
@@ -242,6 +252,8 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
   }
 
   required init?(coder: NSCoder) { fatalError() }
+
+  deinit { Engine.forget(key: engineKey) }
 
   // MARK: Text
 
@@ -348,6 +360,51 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
     refreshPresentation()
     updateBracketHighlight()
     updateOutlineSidebar()
+    if previewVisible { syncPreview(after: 0.15) }
+  }
+
+  // MARK: Preview
+
+  /// Scrolls the preview to where the cursor's text is typeset, once the cursor rests.
+  func syncPreview(after delay: TimeInterval) {
+    previewSyncGeneration += 1
+    let generation = previewSyncGeneration
+    DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+      guard let self, generation == self.previewSyncGeneration, self.previewVisible,
+        self.window?.firstResponder === self.textView
+      else { return }
+      let text = self.text
+      let cursor = self.textView.selectedRange().location
+      let key = self.engineKey
+      Self.engineQueue.async {
+        let positions = Engine.previewPositions(key: key, text: text, cursor: cursor)
+        DispatchQueue.main.async {
+          MainActor.assumeIsolated {
+            guard generation == self.previewSyncGeneration, let first = positions.first else { return }
+            self.previewPane.reveal(page: first.page, point: first.point)
+          }
+        }
+      }
+    }
+  }
+
+  /// Puts the cursor on the text under a click in the preview and points it out.
+  func jumpFromPreview(page: Int, point: CGPoint) {
+    guard let offset = Engine.sourceOffset(key: engineKey, page: page, point: point) else { return }
+    let location = min(offset, storage.length)
+    window?.makeFirstResponder(textView)
+    previewSyncGeneration += 1
+    textView.setSelectedRange(NSRange(location: location, length: 0))
+    textView.scrollRangeToVisible(NSRange(location: location, length: 0))
+    DispatchQueue.main.async { [weak self] in
+      guard let self, location < self.storage.length else { return }
+      // Layout may change as markup around the cursor is revealed, so point afterwards.
+      let word = self.textView.selectionRange(
+        forProposedRange: NSRange(location: location, length: 0), granularity: .selectByWord)
+      let range = word.length > 0 && word.length < 40 ? word : NSRange(location: location, length: 1)
+      self.textView.scrollRangeToVisible(range)
+      self.textView.showFindIndicator(for: range)
+    }
   }
 
   func updateOutlineSidebar() {
@@ -1155,12 +1212,15 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
     DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
       guard let self, generation == self.compileGeneration else { return }
       let text = self.text
-      let pdf = self.previewVisible
+      let key = self.engineKey
+      let preview = self.previewVisible
       Self.engineQueue.async {
-        let result = Engine.compile(text, pdf: pdf)
+        let result = Engine.compile(text, pdf: false, key: key)
+        let pages = preview ? Engine.previewPages(key: key) : []
         DispatchQueue.main.async {
           MainActor.assumeIsolated {
             guard generation == self.compileGeneration else { return }
+            if preview { self.previewPane.update(pages: pages, errors: result.errors.count) }
             self.showCompileResult(result, for: text)
           }
         }
@@ -1176,7 +1236,7 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
     let full = NSRange(location: 0, length: storage.length)
     layout.removeTemporaryAttribute(.underlineStyle, forCharacterRange: full)
     layout.removeTemporaryAttribute(.underlineColor, forCharacterRange: full)
-    if previewVisible { previewPane.show(pdf: result.pdf, errors: result.errors.count) }
+    if previewVisible { syncPreview(after: 0) }
     if text == self.text {
       for diagnostic in diagnostics {
         guard var range = diagnostic.range, storage.length > 0 else { continue }
@@ -1445,7 +1505,9 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
       }
     }
     if !isAutomatedCheck { UserDefaults.standard.set(show, forKey: PreferenceKey.previewVisible) }
-    if show { scheduleCompile(delay: 0) }
+    if show {
+      scheduleCompile(delay: 0)
+    }
   }
 
   var symbolsVisible: Bool { !symbolsItem.isCollapsed }

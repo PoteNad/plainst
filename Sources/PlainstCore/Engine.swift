@@ -53,6 +53,19 @@ public struct CompileResult: Sendable {
   public var errors: [Diagnostic] { diagnostics.filter(\.isError) }
 }
 
+/// A page of the typeset document, identified by a hash of its content.
+public struct PreviewPage: Equatable, Sendable {
+  public var size: CGSize
+  public var hashLow: UInt64
+  public var hashHigh: UInt64
+
+  public init(size: CGSize, hashLow: UInt64, hashHigh: UInt64) {
+    self.size = size
+    self.hashLow = hashLow
+    self.hashHigh = hashHigh
+  }
+}
+
 /// A rendered equation. Sizes are in Typst points at 11pt text.
 public struct MathRender: @unchecked Sendable {
   public var image: CGImage
@@ -147,9 +160,10 @@ public enum Engine {
     }
   }
 
-  /// Compiles the document and optionally produces a PDF.
-  public static func compile(_ text: String, pdf: Bool) -> CompileResult {
-    let data = call(text) { plainst_compile($0, $1, pdf) }
+  /// Compiles the document and optionally produces a PDF. A document without errors is
+  /// kept under `key`, one per window, for label completions and the preview.
+  public static func compile(_ text: String, pdf: Bool, key: UInt64 = 0) -> CompileResult {
+    let data = call(text) { plainst_compile($0, $1, pdf, key) }
     guard data.count >= 8, data.prefix(4) == Data("PLC1".utf8) else {
       return CompileResult(
         pages: 0,
@@ -221,8 +235,10 @@ public enum Engine {
   }
 
   /// Typst's completions at a cursor, the same suggestions its language server offers.
-  public static func completions(_ text: String, cursor: Int, explicit: Bool) -> CompletionList {
-    let data = call(text) { plainst_complete($0, $1, max(0, cursor), explicit) }
+  public static func completions(_ text: String, cursor: Int, explicit: Bool, key: UInt64 = 0)
+    -> CompletionList
+  {
+    let data = call(text) { plainst_complete($0, $1, max(0, cursor), explicit, key) }
     guard let raw = try? JSONDecoder().decode(RawCompletions.self, from: data) else {
       return CompletionList(from: cursor, items: [])
     }
@@ -256,6 +272,73 @@ public enum Engine {
   /// Every symbol Typst knows, by full name, such as `arrow.r.double`.
   public static let symbols: [TypstSymbol] = symbolGroups.flatMap(\.symbols)
 
+  // MARK: Preview
+
+  /// Page sizes in points and content hashes of the last good document under `key`.
+  public static func previewPages(key: UInt64) -> [PreviewPage] {
+    let buffer = plainst_preview_pages(key)
+    defer { plainst_buffer_free(buffer) }
+    guard let pointer = buffer.data, buffer.len >= 8 else { return [] }
+    let data = Data(bytes: pointer, count: buffer.len)
+    guard data.prefix(4) == Data("PLP1".utf8) else { return [] }
+    let count = Int(data.readUInt32(at: 4))
+    guard data.count >= 8 + count * 24 else { return [] }
+    return (0..<count).map { index in
+      let base = 8 + index * 24
+      return PreviewPage(
+        size: CGSize(
+          width: CGFloat(data.readFloat32(at: base)), height: CGFloat(data.readFloat32(at: base + 4))),
+        hashLow: data.readUInt64(at: base + 8), hashHigh: data.readUInt64(at: base + 16))
+    }
+  }
+
+  /// Renders a page if the kept document still has it, as an opaque image.
+  public static func renderPage(key: UInt64, index: Int, page: PreviewPage, pixelsPerPoint: Double)
+    -> CGImage?
+  {
+    let buffer = plainst_render_page(key, index, pixelsPerPoint, page.hashLow, page.hashHigh)
+    defer { plainst_buffer_free(buffer) }
+    guard let pointer = buffer.data, buffer.len >= 12 else { return nil }
+    let data = Data(bytes: pointer, count: buffer.len)
+    guard data.prefix(4) == Data("PLI1".utf8) else { return nil }
+    let width = Int(data.readUInt32(at: 4))
+    let height = Int(data.readUInt32(at: 8))
+    let pixels = data.subdata(in: 12..<data.count)
+    guard width > 0, height > 0, pixels.count == width * height * 4,
+      let provider = CGDataProvider(data: pixels as CFData)
+    else { return nil }
+    return CGImage(
+      width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
+      space: CGColorSpace(name: CGColorSpace.sRGB)!,
+      bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+      provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
+  }
+
+  /// The source offset under a point on a page, in points from the page's top left.
+  public static func sourceOffset(key: UInt64, page: Int, point: CGPoint) -> Int? {
+    let offset = plainst_jump_from_click(key, page, Double(point.x), Double(point.y))
+    return offset >= 0 ? Int(offset) : nil
+  }
+
+  /// Where the text at the cursor appears on the pages. Empty when `text` has changed
+  /// since the kept document was compiled.
+  public static func previewPositions(key: UInt64, text: String, cursor: Int) -> [(page: Int, point: CGPoint)] {
+    let data = call(text) { plainst_preview_positions(key, $0, $1, max(0, cursor)) }
+    guard data.count >= 8, data.prefix(4) == Data("PLJ1".utf8) else { return [] }
+    let count = Int(data.readUInt32(at: 4))
+    guard data.count >= 8 + count * 12 else { return [] }
+    return (0..<count).map { index in
+      let base = 8 + index * 12
+      return (
+        Int(data.readUInt32(at: base)),
+        CGPoint(x: CGFloat(data.readFloat32(at: base + 4)), y: CGFloat(data.readFloat32(at: base + 8)))
+      )
+    }
+  }
+
+  /// Releases the document kept for a window that closed.
+  public static func forget(key: UInt64) { plainst_forget(key) }
+
   /// Loads fonts and the standard library so the first render is fast.
   public static func warmUp() { plainst_warm_up() }
 
@@ -277,6 +360,10 @@ extension Data {
       copyBytes(to: $0, from: (startIndex + offset)..<(startIndex + offset + 4))
     }
     return UInt32(littleEndian: value)
+  }
+
+  fileprivate func readUInt64(at offset: Int) -> UInt64 {
+    UInt64(readUInt32(at: offset)) | UInt64(readUInt32(at: offset + 4)) << 32
   }
 
   fileprivate func readFloat32(at offset: Int) -> Float32 {

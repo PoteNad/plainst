@@ -64,14 +64,14 @@ fn reports_math_errors() {
 
 #[test]
 fn compiles_pdf() {
-    let output = compile("= Hello\n\nWorld $x$\n", true);
+    let output = compile("= Hello\n\nWorld $x$\n", true, 0);
     assert!(output.json.contains("\"pages\":1"), "{}", output.json);
     assert!(output.pdf.unwrap().starts_with(b"%PDF"));
 }
 
 #[test]
 fn reports_diagnostics_in_utf16() {
-    let output = compile("é #unknown", false);
+    let output = compile("é #unknown", false, 0);
     assert!(
         output.json.contains("\"error\":true,\"s\":3,\"e\":10"),
         "{}",
@@ -81,14 +81,14 @@ fn reports_diagnostics_in_utf16() {
 
 #[test]
 fn packages_are_unavailable() {
-    let output = compile("#import \"@preview/foo:0.1.0\": *\n", false);
+    let output = compile("#import \"@preview/foo:0.1.0\": *\n", false, 0);
     assert!(output.json.contains("offline"), "{}", output.json);
 }
 
 #[test]
 fn completes_math_symbols() {
     let text = "Energy $alp$ here";
-    let json = complete_json(text, 11, false);
+    let json = complete_json(text, 11, false, 0);
     assert!(json.contains("\"label\":\"alpha\""), "{json}");
     assert!(json.contains("\"symbol\":\"α\""), "{json}");
     assert!(json.starts_with("{\"from\":8,"), "{json}");
@@ -96,7 +96,7 @@ fn completes_math_symbols() {
 
 #[test]
 fn completes_math_functions_with_snippets() {
-    let json = complete_json("$fra$", 4, false);
+    let json = complete_json("$fra$", 4, false, 0);
     assert!(json.contains("\"label\":\"frac\""), "{json}");
     assert!(json.contains("${"), "{json}");
 }
@@ -137,4 +137,36 @@ fn outline_reports_labels_and_references() {
     let json = outline_json("= Intro <intro>\n\nSee @intro.\n");
     assert!(json.contains("\"k\":\"label\",\"s\":8,\"e\":15"), "{json}");
     assert!(json.contains("\"k\":\"ref\",\"s\":21,\"e\":27,\"m\":[[21,22]]"), "{json}");
+}
+
+#[test]
+fn previews_pages_and_jumps_both_ways() {
+    let key = 0x5EED;
+    let text = "= Title\n\nFirst page.\n#pagebreak()\nSecond page with $x^2$.\n";
+    assert!(!compile(text, false, key).json.contains("\"error\":true"));
+    let pages = pages_binary(key);
+    assert_eq!(&pages[..4], b"PLP1");
+    assert_eq!(u32::from_le_bytes(pages[4..8].try_into().unwrap()), 2);
+    let width = f32::from_le_bytes(pages[8..12].try_into().unwrap());
+    assert!((width - 595.28).abs() < 1.0, "{width}");
+    let hash = u128::from_le_bytes(pages[16..32].try_into().unwrap());
+
+    let image = render_page_binary(key, 0, 1.0, hash);
+    assert_eq!(&image[..4], b"PLI1");
+    assert_eq!(&render_page_binary(key, 0, 1.0, hash ^ 1)[..4], b"PLE1");
+
+    // Text on the second page leads back to its source, and back again.
+    let second = text.find("Second").unwrap() as u32 + 2;
+    let places = positions_binary(key, text, second as usize);
+    assert_eq!(&places[..4], b"PLJ1");
+    assert_eq!(u32::from_le_bytes(places[4..8].try_into().unwrap()), 1);
+    assert_eq!(u32::from_le_bytes(places[8..12].try_into().unwrap()), 1);
+    let x = f32::from_le_bytes(places[12..16].try_into().unwrap());
+    let y = f32::from_le_bytes(places[16..20].try_into().unwrap());
+    let offset = jump_from_click(key, 1, x as f64 + 1.0, y as f64 - 3.0);
+    let found = text.find("Second").unwrap() as i64;
+    assert!((found..found + 6).contains(&offset), "{offset}");
+    assert!(positions_binary(key, "edited", 1)[4..8] == [0, 0, 0, 0]);
+    forget(key);
+    assert_eq!(pages_binary(key)[4..8], [0, 0, 0, 0]);
 }
