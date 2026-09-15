@@ -114,4 +114,51 @@ extension TypstEditor {
       }
     }
   }
+
+  // MARK: Document style
+
+  /// Looks at the document's style rules again once typing pauses, and restyles the Writing
+  /// view if the font, size, or justification changed.
+  func scheduleStyleRefresh() {
+    styleGeneration += 1
+    let generation = styleGeneration
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+      guard let self, generation == self.styleGeneration else { return }
+      self.refreshDocumentStyle()
+    }
+  }
+
+  func refreshDocumentStyle() {
+    let style = Engine.documentStyle(text)
+    let old = documentStyle
+    documentStyle = style
+    if style.font != old.font || style.size != old.size || style.justify != old.justify {
+      restyleEverything()
+    }
+  }
+
+  /// Sets the document's font and text size by writing its `#set text(...)` rule. Nil returns
+  /// that value to Typst's default.
+  public func setDocumentFont(_ family: String?, size: Double?) {
+    let family = family.flatMap { $0.caseInsensitiveCompare(DocumentStyle.defaultFont) == .orderedSame ? nil : $0 }
+    let size = size.flatMap { abs($0 - DocumentStyle.defaultSize) < 0.001 ? nil : $0 }
+    guard
+      let edit = Formatting.setTextStyle(
+        font: family, size: size, text: storage.mutableString, style: Engine.documentStyle(text),
+        selection: textView.selectedRange())
+    else { return }
+    apply(edit, actionName: "Document Font")
+    refreshDocumentStyle()
+  }
+
+  /// Turns justified paragraphs on or off by writing the document's `#set par(...)` rule.
+  public func setJustified(_ justify: Bool) {
+    guard
+      let edit = Formatting.setJustified(
+        justify, text: storage.mutableString, style: Engine.documentStyle(text),
+        selection: textView.selectedRange())
+    else { return }
+    apply(edit, actionName: justify ? "Justify Paragraphs" : "Don't Justify Paragraphs")
+    refreshDocumentStyle()
+  }
 }

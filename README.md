@@ -29,6 +29,7 @@ Plainst formats paragraphs, headings, bold, italic, inline code and code blocks,
 
 - Native document windows and tabs, autosave, versions, Revert, Duplicate, Rename, and Move.
 - Format commands that write plain Typst: Bold (⌘B), Italic (⌘I), Code, Headings (⌥⌘1–3), Bulleted and Numbered Lists (⇧⌘8, ⇧⌘7), Equations (⌥⌘E, ⇧⌥⌘E).
+- Document Font and Justify Paragraphs in the Format menu write Typst `#set` rules, and the Writing view follows the document's font, size, and justification.
 - Return continues a list and ends it on an empty item. Tab and Shift-Tab indent lines and nest list items by the tab width, with optional indentation guides.
 - An outline sidebar (⌃⌘S) of the document's headings that follows the cursor, and Go to Heading (⌃6).
 - Completions from Typst's own IDE engine for symbols, math functions, code, and label references after `@` (⌥⎋ to ask), with snippet placeholders you can Tab through.

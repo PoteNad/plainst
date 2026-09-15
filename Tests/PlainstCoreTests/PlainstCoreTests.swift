@@ -306,3 +306,44 @@ import Testing
     #expect(out?.applied(to: "- a\n    - b") == "- a\n- b")
   }
 }
+
+@Suite struct DocumentStyles {
+  func apply(_ edit: TextEdit?, to text: String) -> String { edit.map { $0.applied(to: text) } ?? text }
+
+  @Test func readsAndWritesTheTextRule() {
+    var text = "= Title\n\nBody.\n"
+    var style = Engine.documentStyle(text)
+    #expect(style == DocumentStyle())
+    text = apply(
+      Formatting.setTextStyle(font: "New Computer Modern", size: 12, text: text as NSString, style: style, selection: NSRange()),
+      to: text)
+    #expect(text == "#set text(font: \"New Computer Modern\", size: 12pt)\n\n= Title\n\nBody.\n")
+    style = Engine.documentStyle(text)
+    #expect(style.font == "New Computer Modern" && style.size == 12)
+    #expect(Engine.compile(text, pdf: false).errors.isEmpty)
+
+    // Other arguments stay as written; removing font and size keeps them.
+    text = "#set text(fill: blue, size: 9pt)\nBody.\n"
+    style = Engine.documentStyle(text)
+    text = apply(Formatting.setTextStyle(font: nil, size: 10.5, text: text as NSString, style: style, selection: NSRange()), to: text)
+    #expect(text == "#set text(fill: blue, size: 10.5pt)\nBody.\n")
+    style = Engine.documentStyle(text)
+    text = apply(Formatting.setTextStyle(font: nil, size: nil, text: text as NSString, style: style, selection: NSRange()), to: text)
+    #expect(text == "#set text(fill: blue)\nBody.\n")
+  }
+
+  @Test func togglesJustificationBesideTheTextRule() {
+    var text = "#set text(size: 12pt)\nBody.\n"
+    var style = Engine.documentStyle(text)
+    let caret = NSRange(location: 24, length: 0)
+    let edit = Formatting.setJustified(true, text: text as NSString, style: style, selection: caret)
+    text = apply(edit, to: text)
+    #expect(text == "#set text(size: 12pt)\n#set par(justify: true)\nBody.\n")
+    #expect(edit?.selection.location == 48)
+    style = Engine.documentStyle(text)
+    #expect(style.justify == true)
+    text = apply(Formatting.setJustified(false, text: text as NSString, style: style, selection: NSRange()), to: text)
+    #expect(text == "#set text(size: 12pt)\nBody.\n")
+    #expect(Formatting.setJustified(false, text: "Body." as NSString, style: DocumentStyle(), selection: NSRange()) == nil)
+  }
+}

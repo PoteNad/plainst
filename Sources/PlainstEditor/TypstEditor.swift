@@ -111,6 +111,10 @@ public final class TypstEditor: NSObject, NSTextViewDelegate, @preconcurrency NS
   public private(set) var zoomPercent = 100
   /// Also collect page sizes after each compile, for a preview of the typeset document.
   public var collectsPages = false
+  /// The font, size, and justification the document sets for itself, which the Writing view
+  /// follows.
+  public internal(set) var documentStyle = DocumentStyle()
+  var styleGeneration = 0
 
   public private(set) var elements: [OutlineElement] = []
   private(set) var presentation = Presentation()
@@ -163,7 +167,10 @@ public final class TypstEditor: NSObject, NSTextViewDelegate, @preconcurrency NS
   var concealing: Bool { mode == .writing }
   /// View points per Typst point, so the Writing view keeps the PDF's proportions.
   var typstScale: CGFloat { 1.5 * configuration.writingSize * CGFloat(zoomPercent) / 100 }
-  var bodySize: CGFloat { Engine.typstTextSize * typstScale }
+  /// The size of body text in the Writing view: the document's text size, at the Writing scale.
+  var bodySize: CGFloat {
+    CGFloat(min(96, max(4, documentStyle.size ?? DocumentStyle.defaultSize))) * typstScale
+  }
   var sourceSize: CGFloat { configuration.sourceFontSize * CGFloat(zoomPercent) / 100 }
 
   private struct AttributeKey: Hashable {
@@ -257,6 +264,7 @@ public final class TypstEditor: NSObject, NSTextViewDelegate, @preconcurrency NS
 
   /// Replaces the text without recording an undo action, and puts the cursor at the start.
   public func loadText(_ text: String) {
+    documentStyle = Engine.documentStyle(text)
     isLoading = true
     storage.setAttributedString(NSAttributedString(string: text, attributes: plainAttributes()))
     isLoading = false
@@ -340,6 +348,7 @@ public final class TypstEditor: NSObject, NSTextViewDelegate, @preconcurrency NS
     updatePreview()
     clearAnnotations()
     scheduleCompile()
+    scheduleStyleRefresh()
     let typed = lastTyped
     lastTyped = nil
     assistant.textDidChange(typed: typed)
@@ -564,7 +573,7 @@ public final class TypstEditor: NSObject, NSTextViewDelegate, @preconcurrency NS
     attributeCache.removeAll()
     textView.typingAttributes = plainAttributes()
     // The Writing view's page width is the text width of Typst's default A4 page, at this scale.
-    let pageWidth: CGFloat = mode == .writing ? 453.5 / Engine.typstTextSize * bodySize : sourceSize * 0.61 * 92
+    let pageWidth: CGFloat = mode == .writing ? 453.5 * typstScale : sourceSize * 0.61 * 92
     switch configuration.textWidth {
     case .narrow: scrollView.columnWidth = (pageWidth * (mode == .writing ? 0.75 : 72 / 92)).rounded()
     case .page: scrollView.columnWidth = pageWidth.rounded()
@@ -619,7 +628,7 @@ public final class TypstEditor: NSObject, NSTextViewDelegate, @preconcurrency NS
     switch replacement {
     case .text(let string):
       let font = storage.attribute(.font, at: index, effectiveRange: nil) as? NSFont
-        ?? Typefaces.serif(size: bodySize, bold: false, italic: false)
+        ?? Typefaces.serif(family: documentStyle.font, size: bodySize, bold: false, italic: false)
       let drawn = NSAttributedString(
         string: string, attributes: [.font: font, .foregroundColor: NSColor.textColor])
       return ReplacementMetrics(
@@ -672,7 +681,7 @@ public final class TypstEditor: NSObject, NSTextViewDelegate, @preconcurrency NS
           size: size * 0.8, bold: style.contains(.bold), italic: style.contains(.italic))
       } else {
         font = Typefaces.serif(
-          size: size, bold: style.contains(.bold) || run.heading > 0,
+          family: documentStyle.font, size: size, bold: style.contains(.bold) || run.heading > 0,
           italic: style.contains(.italic))
       }
       if style.contains(.reference) { color = .linkColor }
@@ -681,7 +690,14 @@ public final class TypstEditor: NSObject, NSTextViewDelegate, @preconcurrency NS
       let lineSize = bodySize * Presentation.headingScale(run.paragraph.heading)
       paragraph.minimumLineHeight = (lineSize * 1.32).rounded()
       if run.paragraph.heading > 0 { paragraph.paragraphSpacingBefore = (bodySize * 0.5).rounded() }
-      if run.paragraph.centered { paragraph.alignment = .center }
+      if run.paragraph.centered {
+        paragraph.alignment = .center
+      } else if documentStyle.justify == true, run.paragraph.heading == 0, run.paragraph.mathCard == .none,
+        !run.paragraph.rawBlock
+      {
+        // Justified like the typeset page; headings and code stay ragged, as in Typst.
+        paragraph.alignment = .justified
+      }
       if run.paragraph.mathCard == .source {
         let card = cardMetrics
         paragraph.firstLineHeadIndent = card.inset + card.fieldX
@@ -690,7 +706,7 @@ public final class TypstEditor: NSObject, NSTextViewDelegate, @preconcurrency NS
         paragraph.minimumLineHeight = (bodySize * 1.25).rounded()
       }
       if let prefix = run.paragraph.listPrefix {
-        let body = Typefaces.serif(size: bodySize, bold: false, italic: false)
+        let body = Typefaces.serif(family: documentStyle.font, size: bodySize, bold: false, italic: false)
         paragraph.headIndent = (prefix as NSString).size(withAttributes: [.font: body]).width
       }
     case .source:
@@ -723,7 +739,8 @@ public final class TypstEditor: NSObject, NSTextViewDelegate, @preconcurrency NS
       paragraphFont = Typefaces.editorMono(family: configuration.sourceFontName, size: bodySize * 0.8)
     case .writing:
       paragraphFont = Typefaces.serif(
-        size: bodySize * Presentation.headingScale(run.paragraph.heading), bold: false, italic: false)
+        family: documentStyle.font, size: bodySize * Presentation.headingScale(run.paragraph.heading),
+        bold: false, italic: false)
     }
     paragraph.tabStops = []
     paragraph.defaultTabInterval =

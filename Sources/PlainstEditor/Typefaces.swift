@@ -5,6 +5,19 @@ import PlainstCore
 /// The typefaces Typst uses by default, registered so the Writing view matches the PDF.
 @MainActor
 public enum Typefaces {
+  /// Family names of the fonts bundled with Typst, as macOS knows them.
+  private static var bundledFamilies: [String] = []
+
+  /// The macOS family name for a family Typst names, which can differ in spacing or case, such
+  /// as "New Computer Modern" and "NewComputerModern".
+  static func installedFamily(matching family: String) -> String? {
+    func key(_ name: String) -> String {
+      name.lowercased().filter { !" -_".contains($0) }
+    }
+    let wanted = key(family)
+    return (bundledFamilies + NSFontManager.shared.availableFontFamilies).first { key($0) == wanted }
+  }
+
   public static func registerBundledFonts() {
     for data in Engine.bundledFonts() {
       guard let provider = CGDataProvider(data: data as CFData), let font = CGFont(provider) else {
@@ -13,10 +26,39 @@ public enum Typefaces {
       var error: Unmanaged<CFError>?
       CTFontManagerRegisterGraphicsFont(font, &error)
       error?.release()
+      let family = CTFontCopyFamilyName(CTFontCreateWithGraphicsFont(font, 12, nil, nil)) as String
+      if !bundledFamilies.contains(family) { bundledFamilies.append(family) }
     }
   }
 
-  public static func serif(size: CGFloat, bold: Bool, italic: Bool) -> NSFont {
+  /// The document's text font: `family` when it is installed, otherwise Typst's default serif.
+  public static func serif(family: String? = nil, size: CGFloat, bold: Bool, italic: Bool) -> NSFont {
+    if let requested = family, requested.caseInsensitiveCompare(DocumentStyle.defaultFont) != .orderedSame,
+      let family = installedFamily(matching: requested)
+    {
+      // Look fonts up by family, which also finds the fonts bundled with Typst that Plainst
+      // registers for itself.
+      func matches(_ font: NSFont?) -> NSFont? {
+        guard let font, font.familyName?.caseInsensitiveCompare(family) == .orderedSame else { return nil }
+        return font
+      }
+      let base = NSFontDescriptor(fontAttributes: [.family: family])
+      var symbolic: NSFontDescriptor.SymbolicTraits = []
+      if bold { symbolic.insert(.bold) }
+      if italic { symbolic.insert(.italic) }
+      if let font = matches(NSFont(descriptor: base.withSymbolicTraits(symbolic), size: size)),
+        font.fontDescriptor.symbolicTraits.isSuperset(of: symbolic)
+      {
+        return font
+      }
+      if let regular = matches(NSFont(descriptor: base, size: size)) {
+        // A family without a bold or italic face gets one derived from its regular face.
+        var traits: NSFontTraitMask = []
+        if bold { traits.insert(.boldFontMask) }
+        if italic { traits.insert(.italicFontMask) }
+        return traits.isEmpty ? regular : NSFontManager.shared.convert(regular, toHaveTrait: traits)
+      }
+    }
     let name: String
     switch (bold, italic) {
     case (true, true): name = "LibertinusSerif-BoldItalic"

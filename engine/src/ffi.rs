@@ -191,6 +191,19 @@ pub unsafe extern "C" fn plainst_preview_positions(
     guarded(|| crate::positions_binary(key, &source, cursor_utf16))
 }
 
+/// The document's text style from its top-level set rules, as UTF-8 JSON.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn plainst_document_style(data: *const u8, len: usize) -> PlainstBuffer {
+    let source = unsafe { text(data, len) };
+    guarded(|| crate::style_json(&source).into_bytes())
+}
+
+/// Every font family Typst can use, as a UTF-8 JSON array.
+#[unsafe(no_mangle)]
+pub extern "C" fn plainst_font_families() -> PlainstBuffer {
+    guarded(|| crate::font_families_json().into_bytes())
+}
+
 /// Forgets the document kept for a window that closed.
 #[unsafe(no_mangle)]
 pub extern "C" fn plainst_forget(key: u64) {

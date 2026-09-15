@@ -51,6 +51,14 @@ PlainstBuffer plainst_preview_positions(uint64_t key, const uint8_t *text, size_
 
 void plainst_forget(uint64_t key);
 
+/// The document's text style from its top-level, unconditional set rules, as UTF-8 JSON:
+/// {"font", "size", "justify", "text": rule, "par": rule}, where each rule is the last of its
+/// kind as {"s", "e", "args": [{"n", "s", "e"}]} with UTF-16 offsets.
+PlainstBuffer plainst_document_style(const uint8_t *text, size_t len);
+
+/// Every font family Typst can use, sorted, as a UTF-8 JSON array of strings.
+PlainstBuffer plainst_font_families(void);
+
 /// Every Typst symbol name and its character, as UTF-8 JSON [[name, symbol], ...].
 PlainstBuffer plainst_symbols(void);
 

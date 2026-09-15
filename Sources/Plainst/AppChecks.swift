@@ -194,6 +194,35 @@ enum AppChecks {
     guard editor.text == "- a\n- b\nx   " else { fail("Shift-Tab should outdent the item: \(editor.text.debugDescription)") }
     pass("Tab and Shift-Tab indent by the configured width")
 
+    // The Writing view follows the document's font, size, and justification, and the Format
+    // commands rewrite its rules.
+    editor.setMode(.writing)
+    editor.loadText("#set text(font: \"New Computer Modern\", size: 14pt)\n#set par(justify: true)\n\nA paragraph of plain words.\n")
+    func bodyAttributes() -> (NSFont?, NSParagraphStyle?) {
+      let location = (editor.text as NSString).range(of: "plain").location
+      return (
+        editor.storage.attribute(.font, at: location, effectiveRange: nil) as? NSFont,
+        editor.storage.attribute(.paragraphStyle, at: location, effectiveRange: nil) as? NSParagraphStyle)
+    }
+    var (font, paragraph) = bodyAttributes()
+    guard font?.fontName.hasPrefix("NewCM10") == true, abs((font?.pointSize ?? 0) - 14 * editor.typst.typstScale) < 0.5,
+      paragraph?.alignment == .justified
+    else { fail("the Writing view should follow the document style: \(String(describing: font)) \(String(describing: paragraph?.alignment.rawValue))") }
+    editor.typst.setDocumentFont(nil, size: 12)
+    editor.typst.setJustified(false)
+    guard editor.text == "#set text(size: 12pt)\n\nA paragraph of plain words.\n",
+      Engine.compile(editor.text, pdf: false).errors.isEmpty
+    else { fail("Format commands should rewrite the style rules: \(editor.text.debugDescription)") }
+    (font, paragraph) = bodyAttributes()
+    guard font?.familyName == "Libertinus Serif", abs((font?.pointSize ?? 0) - 12 * editor.typst.typstScale) < 0.5,
+      paragraph?.alignment != .justified
+    else { fail("the Writing view should return to the default font: \(String(describing: font))") }
+    editor.typst.setDocumentFont(nil, size: nil)
+    guard editor.text == "\nA paragraph of plain words.\n" else {
+      fail("removing the last style argument should remove the rule: \(editor.text.debugDescription)")
+    }
+    pass("the Writing view follows the document's font, size, and justification, and Format writes them")
+
     // Text width presets widen the column in order, and Full Window fills the window.
     func columnWidth(_ width: TextWidth, _ mode: EditorMode) -> CGFloat {
       editor.setMode(mode)
@@ -787,6 +816,9 @@ enum AppChecks {
       }
       if environment["PLAINST_TOGGLE_SYMBOLS"] != "1", let category = environment["PLAINST_SYMBOL_CATEGORY"] {
         after(2) { editor.symbols.showCategory(category) }
+      }
+      if environment["PLAINST_DOCUMENT_FONT"] == "1" {
+        after(1.5) { editor.showDocumentFont(nil) }
       }
       if environment["PLAINST_TOGGLE_OUTLINE"] == "1" {
         after(0.2) { editor.toggleOutline(nil) }

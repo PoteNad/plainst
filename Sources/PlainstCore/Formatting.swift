@@ -276,6 +276,82 @@ public enum Formatting {
       selection: NSRange(location: selection.location + spaces, length: 0))
   }
 
+  // MARK: Document style
+
+  /// Sets the document's font and text size by rewriting its last `#set text(...)` rule, or by
+  /// adding one at the top. A nil value removes that argument, returning to Typst's default;
+  /// a rule left with no arguments is removed. Other arguments stay exactly as written.
+  public static func setTextStyle(
+    font: String?, size: Double?, text: NSString, style: DocumentStyle, selection: NSRange
+  ) -> TextEdit? {
+    rewriteRule(
+      "text", style.textRule, other: style.parRule,
+      values: [("font", font.map(quoted)), ("size", size.map(pointsLiteral))], text: text,
+      selection: selection)
+  }
+
+  /// Turns justified paragraphs on or off with the document's `#set par(...)` rule.
+  public static func setJustified(_ justify: Bool, text: NSString, style: DocumentStyle, selection: NSRange)
+    -> TextEdit?
+  {
+    rewriteRule(
+      "par", style.parRule, other: style.textRule, values: [("justify", justify ? "true" : nil)],
+      text: text, selection: selection)
+  }
+
+  private static func quoted(_ value: String) -> String {
+    "\"" + value.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
+  }
+
+  private static func pointsLiteral(_ points: Double) -> String {
+    let rounded = (points * 100).rounded() / 100
+    return (rounded == rounded.rounded() ? String(Int(rounded)) : String(rounded)) + "pt"
+  }
+
+  private static func rewriteRule(
+    _ target: String, _ rule: DocumentStyle.Rule?, other: DocumentStyle.Rule?,
+    values: [(name: String, value: String?)], text: NSString, selection: NSRange
+  ) -> TextEdit? {
+    let names = Set(values.map(\.name))
+    let kept = (rule?.arguments ?? []).filter { !names.contains($0.name ?? "") }.map { text.substring(with: $0.range) }
+    let added = values.compactMap { item in item.value.map { "\(item.name): \($0)" } }
+    let arguments = kept + added
+    let body = "#set \(target)(" + arguments.joined(separator: ", ") + ")"
+
+    let range: NSRange
+    let replacement: String
+    if let rule {
+      if arguments.isEmpty {
+        // Remove the rule, and its line when nothing else is on it.
+        let line = text.lineRange(for: rule.range)
+        let onItsOwn = text.substring(with: line).trimmingCharacters(in: .whitespacesAndNewlines)
+          == text.substring(with: rule.range)
+        range = onItsOwn ? line : rule.range
+        replacement = ""
+      } else {
+        range = rule.range
+        replacement = body
+      }
+    } else {
+      guard !added.isEmpty else { return nil }
+      // New rules go at the top, beside the other style rule when there is one.
+      let location = other.map { NSMaxRange(text.lineRange(for: $0.range)) } ?? 0
+      let atLineStart = location == 0 || text.character(at: location - 1) == 0x0A
+      range = NSRange(location: location, length: 0)
+      let next = location < text.length ? text.character(at: location) : 0x0A
+      replacement = (atLineStart ? "" : "\n") + body + "\n" + (other == nil && next != 0x0A && next != 0x23 ? "\n" : "")
+    }
+    // Keep the cursor on the same text.
+    let delta = (replacement as NSString).length - range.length
+    var caret = selection
+    if caret.location >= NSMaxRange(range) {
+      caret.location += delta
+    } else if caret.location > range.location {
+      caret = NSRange(location: range.location + (replacement as NSString).length, length: 0)
+    }
+    return TextEdit(range: range, replacement: replacement, selection: caret)
+  }
+
   /// Counts words the way a reader would, ignoring markup punctuation.
   public static func wordCount(_ text: String) -> Int {
     var count = 0

@@ -53,6 +53,54 @@ public struct CompileResult: Sendable {
   public var errors: [Diagnostic] { diagnostics.filter(\.isError) }
 }
 
+/// The text style a document sets for itself with top-level `#set text(...)` and
+/// `#set par(...)` rules. A nil value means the document leaves Typst's default.
+public struct DocumentStyle: Equatable, Sendable {
+  /// A set rule that can be rewritten, with the source range of each argument.
+  public struct Rule: Equatable, Sendable {
+    public struct Argument: Equatable, Sendable {
+      public var name: String?
+      public var range: NSRange
+
+      public init(name: String?, range: NSRange) {
+        self.name = name
+        self.range = range
+      }
+    }
+
+    public var range: NSRange
+    public var arguments: [Argument]
+
+    public init(range: NSRange, arguments: [Argument]) {
+      self.range = range
+      self.arguments = arguments
+    }
+  }
+
+  public static let defaultFont = "Libertinus Serif"
+  public static let defaultSize = 11.0
+
+  public var font: String?
+  /// The text size in points.
+  public var size: Double?
+  public var justify: Bool?
+  /// The last top-level `#set text(...)` rule, which edits update.
+  public var textRule: Rule?
+  /// The last top-level `#set par(...)` rule, which edits update.
+  public var parRule: Rule?
+
+  public init(
+    font: String? = nil, size: Double? = nil, justify: Bool? = nil, textRule: Rule? = nil,
+    parRule: Rule? = nil
+  ) {
+    self.font = font
+    self.size = size
+    self.justify = justify
+    self.textRule = textRule
+    self.parRule = parRule
+  }
+}
+
 /// A page of the typeset document, identified by a hash of its content.
 public struct PreviewPage: Equatable, Sendable {
   public var size: CGSize
@@ -335,6 +383,45 @@ public enum Engine {
       )
     }
   }
+
+  private struct RawStyle: Decodable {
+    struct Rule: Decodable {
+      struct Argument: Decodable {
+        var n: String?
+        var s: Int
+        var e: Int
+      }
+      var s: Int
+      var e: Int
+      var args: [Argument]
+    }
+    var font: String?
+    var size: Double?
+    var justify: Bool?
+    var text: Rule?
+    var par: Rule?
+  }
+
+  /// The text style set by the document's top-level set rules.
+  public static func documentStyle(_ text: String) -> DocumentStyle {
+    let data = call(text) { plainst_document_style($0, $1) }
+    guard let raw = try? JSONDecoder().decode(RawStyle.self, from: data) else { return DocumentStyle() }
+    func rule(_ rule: RawStyle.Rule?) -> DocumentStyle.Rule? {
+      rule.map {
+        DocumentStyle.Rule(
+          range: NSRange(location: $0.s, length: $0.e - $0.s),
+          arguments: $0.args.map { .init(name: $0.n, range: NSRange(location: $0.s, length: $0.e - $0.s)) })
+      }
+    }
+    return DocumentStyle(
+      font: raw.font, size: raw.size, justify: raw.justify, textRule: rule(raw.text), parRule: rule(raw.par))
+  }
+
+  /// Every font family Typst can use, sorted by name.
+  public static let fontFamilies: [String] = {
+    let data = call("") { _, _ in plainst_font_families() }
+    return (try? JSONDecoder().decode([String].self, from: data)) ?? []
+  }()
 
   /// Releases the document kept for a window that closed.
   public static func forget(key: UInt64) { plainst_forget(key) }

@@ -576,6 +576,65 @@ final class Editor: NSWindowController, NSMenuItemValidation, NSWindowDelegate, 
   @objc func insertInlineEquation(_ sender: Any?) { typst.insertEquation(block: false) }
   @objc func insertDisplayEquation(_ sender: Any?) { typst.insertEquation(block: true) }
 
+  /// Format ▸ Document Font: chooses the font and size the document sets for its text.
+  @objc func showDocumentFont(_ sender: Any?) {
+    guard let window else { return }
+    let style = typst.documentStyle
+    let alert = NSAlert()
+    alert.messageText = "Document Font"
+    alert.informativeText =
+      "Choose the font and size for this document's text. Plainst writes them as a #set text rule at the top of the file, so the PDF uses them too."
+    alert.addButton(withTitle: "Apply")
+    alert.addButton(withTitle: "Cancel")
+
+    let family = NSPopUpButton()
+    family.addItem(withTitle: "Default (\(DocumentStyle.defaultFont))")
+    family.menu?.addItem(.separator())
+    for name in Engine.fontFamilies { family.addItem(withTitle: name) }
+    if let current = style.font, let item = family.itemArray.first(where: { $0.title.caseInsensitiveCompare(current) == .orderedSame }) {
+      family.select(item)
+    } else if let current = style.font {
+      // A font Typst doesn't have still shows, so applying keeps it.
+      family.addItem(withTitle: current)
+      family.selectItem(withTitle: current)
+    }
+    let number = NumberFormatter()
+    number.numberStyle = .decimal
+    number.minimum = 4
+    number.maximum = 96
+    number.maximumFractionDigits = 2
+    let size = NSTextField(string: style.size.map { number.string(from: NSNumber(value: $0)) ?? "" } ?? "")
+    size.placeholderString = number.string(from: NSNumber(value: DocumentStyle.defaultSize))
+    size.formatter = number
+    size.widthAnchor.constraint(equalToConstant: 64).isActive = true
+    let points = NSStackView(views: [size, NSTextField(labelWithString: "pt")])
+    points.spacing = 6
+    let grid = NSGridView(views: [
+      [NSTextField(labelWithString: "Font:"), family],
+      [NSTextField(labelWithString: "Size:"), points],
+    ])
+    grid.rowSpacing = 8
+    grid.columnSpacing = 8
+    grid.column(at: 0).xPlacement = .trailing
+    grid.rowAlignment = .firstBaseline
+    grid.frame.size = grid.fittingSize
+    alert.accessoryView = grid
+    alert.window.initialFirstResponder = family
+
+    alert.beginSheetModal(for: window) { [weak self] response in
+      MainActor.assumeIsolated {
+        guard let self, response == .alertFirstButtonReturn else { return }
+        let chosen = family.indexOfSelectedItem <= 0 ? nil : family.titleOfSelectedItem
+        let points = size.stringValue.isEmpty ? nil : number.number(from: size.stringValue)?.doubleValue
+        self.typst.setDocumentFont(chosen, size: points)
+      }
+    }
+  }
+
+  @objc func toggleJustify(_ sender: Any?) {
+    typst.setJustified(typst.documentStyle.justify != true)
+  }
+
   @objc func increaseIndent(_ sender: Any?) { typst.indent(outdent: false) }
   @objc func decreaseIndent(_ sender: Any?) { typst.indent(outdent: true) }
 
@@ -628,6 +687,8 @@ final class Editor: NSWindowController, NSMenuItemValidation, NSWindowDelegate, 
       menuItem.state = mode == .writing ? .on : .off
     case #selector(showSource(_:)):
       menuItem.state = mode == .source ? .on : .off
+    case #selector(toggleJustify(_:)):
+      menuItem.state = typst.documentStyle.justify == true ? .on : .off
     case #selector(toggleStatus(_:)):
       menuItem.state = statusVisible ? .on : .off
     case #selector(toggleSymbols(_:)):

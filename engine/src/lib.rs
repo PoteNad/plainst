@@ -9,10 +9,12 @@ mod ffi;
 mod ide;
 mod outline;
 mod preview;
+mod style;
 mod world;
 
 pub use ide::{complete_json, symbols_json};
 pub use outline::{outline_binary, outline_json};
+pub use style::{font_families_json, style_json};
 pub use preview::{forget, jump_from_click, pages_binary, positions_binary, render_page_binary};
 pub use world::{CompileOutput, MathImage, compile, render_math};
 

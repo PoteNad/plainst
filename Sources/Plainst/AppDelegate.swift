@@ -169,6 +169,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     add(
       format, "Display Equation", #selector(Editor.insertDisplayEquation(_:)), "e",
       modifiers: [.command, .option, .shift])
+    format.addItem(.separator())
+    add(format, "Document Font…", #selector(Editor.showDocumentFont(_:)))
+    add(format, "Justify Paragraphs", #selector(Editor.toggleJustify(_:)))
 
     let view = menu("View")
     add(view, "Writing", #selector(Editor.showWriting(_:)), "1")
@@ -332,6 +335,8 @@ enum Guide {
     #set text(lang: "en")
 
     // Comments like this one never appear in the PDF.
+
+    Choose *Format → Document Font* or *Justify Paragraphs* to style the whole document. Plainst writes them as `#set` rules at the top, and the Writing view follows them.
 
     Choose *File → Export as PDF* to typeset the document with Typst.
     """

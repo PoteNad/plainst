@@ -170,3 +170,31 @@ fn previews_pages_and_jumps_both_ways() {
     forget(key);
     assert_eq!(pages_binary(key)[4..8], [0, 0, 0, 0]);
 }
+
+#[test]
+fn reads_the_document_style_from_top_level_set_rules() {
+    let text = "#set text(font: (\"New Computer Modern\", \"Libertinus Serif\"), size: 10pt)\n\
+                #set par(first-line-indent: 1em, justify: true)\n\
+                #set text(size: 1em) if false\n\
+                #let f() = { set text(size: 20pt) }\n\
+                #set text(fill: red, size: 12pt)\n\nBody.\n";
+    let json = style_json(text);
+    assert!(json.starts_with("{\"font\":\"New Computer Modern\",\"size\":12,\"justify\":true"), "{json}");
+    // The last text rule is the one to edit, with both of its arguments.
+    let last = text.rfind("#set text(fill").unwrap();
+    assert!(json.contains(&format!("\"text\":{{\"s\":{last},")), "{json}");
+    assert!(json.contains("{\"n\":\"fill\""), "{json}");
+    assert!(json.contains("{\"n\":\"first-line-indent\""), "{json}");
+    assert_eq!(
+        style_json("Plain text.\n"),
+        "{\"font\":null,\"size\":null,\"justify\":null,\"text\":null,\"par\":null}"
+    );
+    assert!(style_json("#set text(size: 2cm)").contains("\"size\":56.69"), "{}", style_json("#set text(size: 2cm)"));
+}
+
+#[test]
+fn lists_font_families() {
+    let json = font_families_json();
+    assert!(json.contains("\"Libertinus Serif\""), "{json}");
+    assert!(json.contains("\"New Computer Modern\""), "{json}");
+}
