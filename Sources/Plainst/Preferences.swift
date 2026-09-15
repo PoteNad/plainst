@@ -12,6 +12,8 @@ enum PreferenceKey {
   static let autoPair = "autoPair"
   static let equationPreviews = "equationPreviews"
   static let symbolsVisible = "symbolsVisible"
+  static let previewVisible = "previewVisible"
+  static let outlineVisible = "outlineVisible"
   static let writingSize = "writingSize"
   static let sourceFontName = "sourceFontName"
   static let sourceFontSize = "sourceFontSize"

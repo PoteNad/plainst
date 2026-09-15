@@ -124,8 +124,78 @@ enum AppChecks {
               fail("inserting symbols and structures produced \(editor.text.debugDescription)")
             }
             pass("the symbol catalog is valid and inserting symbols and structures writes valid Typst")
-            finish()
+            navigationCheck(editor)
           }
+        }
+      }
+    }
+  }
+
+  /// The guide, heading outline, label completions, bracket matching, problems and preview.
+  private static func navigationCheck(_ editor: Editor) {
+    let guide = Engine.compile(Guide.text, pdf: false)
+    guard guide.diagnostics.isEmpty else { fail("the guide has problems: \(guide.diagnostics)") }
+    editor.loadText(Guide.text)
+    let menu = editor.makeOutlineMenu()
+    editor.fillOutlineMenu(menu)
+    let titles = menu.items.map(\.title)
+    guard titles.first == "Welcome to Plainst", titles.contains("Labels and references"),
+      menu.items.dropFirst().allSatisfy({ $0.indentationLevel == 1 })
+    else { fail("the outline menu shows \(titles) with levels \(menu.items.map(\.indentationLevel))") }
+    guard let item = menu.items.first(where: { $0.title == "Math" }) else { fail("no Math heading") }
+    editor.jumpToHeading(item)
+    let math = (editor.text as NSString).range(of: "== Math")
+    guard editor.textView.selectedRange() == NSRange(location: NSMaxRange(math), length: 0) else {
+      fail("jumping to a heading put the cursor at \(editor.textView.selectedRange()), not after \(math)")
+    }
+    let referencing = Guide.text + "\nSee @"
+    let references = Engine.completions(referencing, cursor: (referencing as NSString).length, explicit: false)
+    guard references.items.contains(where: { $0.kind == .label && $0.label == "euler" }) else {
+      fail("typing @ should suggest the guide's labels: \(references.items.map(\.label))")
+    }
+    pass("the guide typesets cleanly, the outline jumps to headings, and @ suggests labels")
+
+    editor.loadText("$ f(a [b] c) $")
+    editor.textView.setSelectedRange(NSRange(location: 4, length: 0))
+    editor.selectionChanged()
+    guard let brackets = editor.highlightedBrackets,
+      brackets.0 == NSRange(location: 3, length: 1), brackets.1 == NSRange(location: 11, length: 1)
+    else { fail("the bracket after the cursor should match its partner: \(String(describing: editor.highlightedBrackets))") }
+    editor.textView.setSelectedRange(NSRange(location: 5, length: 0))
+    editor.selectionChanged()
+    guard editor.highlightedBrackets == nil else { fail("a letter should not highlight brackets") }
+
+    editor.loadText("= Draft\n\nHello #nothing-here\n")
+    after(2) {
+      guard editor.diagnostics.contains(where: \.isError), editor.annotations.count == 1 else {
+        fail("an unknown variable should show one line-end message: \(editor.diagnostics)")
+      }
+      pass("matching brackets highlight, and problems show at the ends of their lines")
+      editor.loadText("= Preview\n\nSome text.\n")
+      editor.togglePreview(nil)
+      after(2.5) {
+        guard editor.previewVisible, editor.previewPane.hasDocument,
+          editor.previewPane.pdfView.document?.pageCount == 1
+        else { fail("the preview should show the typeset document") }
+        editor.togglePreview(nil)
+        pass("the preview shows the typeset document")
+        editor.loadText(Guide.text)
+        editor.toggleOutline(nil)
+        after(0.5) {
+          let sidebar = editor.outlineSidebar
+          guard editor.outlineVisible, sidebar.roots.count == 1, sidebar.roots[0].children.count >= 5,
+            sidebar.outlineView.numberOfRows == 1 + sidebar.roots[0].children.count
+          else { fail("the outline sidebar should list the guide's headings") }
+          let math = (editor.text as NSString).range(of: "== Math")
+          editor.textView.setSelectedRange(NSRange(location: math.location + 40, length: 0))
+          editor.selectionChanged()
+          let selected = sidebar.outlineView.item(atRow: sidebar.outlineView.selectedRow) as? OutlineSidebarController.Node
+          guard selected?.entry.title == "Math" else {
+            fail("the outline should follow the cursor into Math, not \(String(describing: selected?.entry.title))")
+          }
+          editor.toggleOutline(nil)
+          pass("the outline sidebar lists headings and follows the cursor")
+          finish()
         }
       }
     }
@@ -429,7 +499,24 @@ enum AppChecks {
                                 fail("Tab after the last placeholder should leave the snippet: \(editor.text.debugDescription) \(view.selectedRange())")
                               }
                               pass("dollar signs pair, completions insert symbols, and Tab moves through snippets")
-                              finish()
+
+                              // Typing @ suggests the labels of the compiled document.
+                              editor.loadText("#set heading(numbering: \"1.\")\n= Intro <intro>\n\nSee ")
+                              view.setSelectedRange(NSRange(location: editor.storage.length, length: 0))
+                              AppChecks.after(1.5) {
+                                type("@")
+                                AppChecks.after(1.0) {
+                                  guard editor.assistant.popup.items.first?.label == "intro" else {
+                                    fail("typing @ should suggest the intro label; got \(editor.assistant.popup.items.map(\.label))")
+                                  }
+                                  key("\r", code: 36)
+                                  guard editor.text.hasSuffix("See @intro") else {
+                                    fail("accepting a label should write a reference: \(editor.text.debugDescription)")
+                                  }
+                                  pass("typing @ suggests labels and writes references")
+                                  finish()
+                                }
+                              }
                             }
                           }
                         }
@@ -551,6 +638,18 @@ enum AppChecks {
         // Place the cursor first so the equation opens, then select inside it.
         editor.textView.setSelectedRange(NSRange(location: parts[0], length: 0))
         after(1) { editor.textView.setSelectedRange(NSRange(location: parts[0], length: parts[1])) }
+      }
+      if environment["PLAINST_TOGGLE_SYMBOLS"] != "1", let category = environment["PLAINST_SYMBOL_CATEGORY"] {
+        after(2) { editor.symbols.showCategory(category) }
+      }
+      if environment["PLAINST_TOGGLE_OUTLINE"] == "1" {
+        after(0.2) { editor.toggleOutline(nil) }
+      }
+      if environment["PLAINST_TOGGLE_PREVIEW"] == "1" {
+        after(0.3) { editor.togglePreview(nil) }
+      }
+      if environment["PLAINST_OUTLINE"] == "1" {
+        after(1.5) { editor.showOutline(nil) }
       }
       if environment["PLAINST_TOGGLE_SYMBOLS"] == "1" {
         after(0.5) {

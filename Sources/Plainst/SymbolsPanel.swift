@@ -135,7 +135,9 @@ final class SymbolsViewController: NSViewController, NSSearchFieldDelegate {
       rebuild()
       view.layoutSubtreeIfNeeded()
       if let header = stack.arrangedSubviews.first(where: { $0.identifier?.rawValue == title }) {
-        scroll.contentView.scroll(to: NSPoint(x: 0, y: max(0, header.frame.minY - 160)))
+        let y = header.convert(NSPoint.zero, to: scroll.documentView).y
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: max(0, y - 160)))
+        scroll.reflectScrolledClipView(scroll.contentView)
       }
     }
   #endif
@@ -158,7 +160,7 @@ final class SymbolsViewController: NSViewController, NSSearchFieldDelegate {
     addGrid(SymbolCatalog.common.compactMap { name in
       SymbolCatalog.values[name].map { symbolButton(TypstSymbol(name: name, value: $0)) }
     })
-    addHeading("All Symbols")
+    addDivider()
     for group in Engine.symbolGroups where !group.symbols.isEmpty {
       addCategory(group)
     }
@@ -193,38 +195,42 @@ final class SymbolsViewController: NSViewController, NSSearchFieldDelegate {
   }
 
   private func addHeading(_ title: String) {
-    let heading = NSTextField(labelWithString: title)
-    heading.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
-    heading.textColor = .labelColor
+    addHeader(SectionHeader(title: title, count: nil, isOpen: nil))
+  }
+
+  private func addHeader(_ header: SectionHeader) {
+    if let last = stack.arrangedSubviews.last, !(last is NSBox) {
+      // Closed categories sit close together; anything after symbols gets more room.
+      let afterClosedHeader = (last as? SectionHeader)?.isOpen == false
+      stack.setCustomSpacing(afterClosedHeader && header.isOpen != nil ? 2 : 14, after: last)
+    }
+    stack.addArrangedSubview(header)
+    header.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -24).isActive = true
+    stack.setCustomSpacing(4, after: header)
+  }
+
+  private func addDivider() {
+    let divider = NSBox()
+    divider.boxType = .separator
+    divider.translatesAutoresizingMaskIntoConstraints = false
     if let last = stack.arrangedSubviews.last { stack.setCustomSpacing(14, after: last) }
-    stack.addArrangedSubview(heading)
-    stack.setCustomSpacing(4, after: heading)
+    stack.addArrangedSubview(divider)
+    divider.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -24).isActive = true
+    stack.setCustomSpacing(10, after: divider)
   }
 
   /// A category header that shows or hides its symbols, built only when first opened.
   private func addCategory(_ group: SymbolGroup) {
-    let header = NSButton(title: "", target: self, action: #selector(toggleCategory(_:)))
-    header.isBordered = false
-    header.imagePosition = .imageLeading
-    header.alignment = .left
-    header.identifier = NSUserInterfaceItemIdentifier(group.title)
-    header.setAccessibilityLabel("\(group.title), \(group.symbols.count) symbols")
     let isOpen = expanded.contains(group.title)
-    header.image = NSImage(
-      systemSymbolName: isOpen ? "chevron.down" : "chevron.right", accessibilityDescription: nil)?
-      .withSymbolConfiguration(.init(pointSize: 9, weight: .semibold))
-    header.contentTintColor = .secondaryLabelColor
-    header.attributedTitle = NSAttributedString(
-      string: " \(group.title)  \(group.symbols.count)",
-      attributes: [.font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize), .foregroundColor: NSColor.labelColor])
-    stack.addArrangedSubview(header)
-    if isOpen {
-      stack.setCustomSpacing(4, after: header)
-      addGrid(group.symbols.map(symbolButton))
-    }
+    let header = SectionHeader(title: group.title, count: group.symbols.count, isOpen: isOpen)
+    header.identifier = NSUserInterfaceItemIdentifier(group.title)
+    header.target = self
+    header.action = #selector(toggleCategory(_:))
+    addHeader(header)
+    if isOpen { addGrid(group.symbols.map(symbolButton)) }
   }
 
-  @objc private func toggleCategory(_ sender: NSButton) {
+  @objc private func toggleCategory(_ sender: NSControl) {
     guard let title = sender.identifier?.rawValue else { return }
     if expanded.contains(title) { expanded.remove(title) } else { expanded.insert(title) }
     let offset = scroll.contentView.bounds.origin
@@ -291,6 +297,74 @@ final class SymbolsViewController: NSViewController, NSSearchFieldDelegate {
 
   @objc private func insertSymbol(_ sender: SymbolButton) {
     editor?.insertMath(sender.code, snippet: sender.isTemplate)
+  }
+}
+
+/// A section title in the inspector. Categories add a quiet count and a disclosure chevron,
+/// and the whole row toggles them.
+private final class SectionHeader: NSControl {
+  /// Nil for fixed sections, otherwise whether the category is showing its symbols.
+  let isOpen: Bool?
+  private let label: NSTextField
+
+  init(title: String, count: Int?, isOpen: Bool?) {
+    self.isOpen = isOpen
+    label = NSTextField(labelWithString: title)
+    super.init(frame: .zero)
+    translatesAutoresizingMaskIntoConstraints = false
+    label.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
+    label.textColor = .labelColor
+    label.lineBreakMode = .byTruncatingTail
+    label.translatesAutoresizingMaskIntoConstraints = false
+    addSubview(label)
+    var constraints = [
+      heightAnchor.constraint(equalToConstant: 20),
+      label.leadingAnchor.constraint(equalTo: leadingAnchor),
+      label.centerYAnchor.constraint(equalTo: centerYAnchor),
+    ]
+    if let isOpen {
+      let chevron = NSImageView(
+        image: NSImage(systemSymbolName: isOpen ? "chevron.down" : "chevron.right", accessibilityDescription: nil)!
+          .withSymbolConfiguration(.init(pointSize: 9, weight: .semibold))!)
+      chevron.contentTintColor = .tertiaryLabelColor
+      chevron.translatesAutoresizingMaskIntoConstraints = false
+      addSubview(chevron)
+      let number = NSTextField(labelWithString: count.map(String.init) ?? "")
+      number.font = .monospacedDigitSystemFont(ofSize: NSFont.smallSystemFontSize - 1, weight: .regular)
+      number.textColor = .tertiaryLabelColor
+      number.translatesAutoresizingMaskIntoConstraints = false
+      addSubview(number)
+      constraints += [
+        chevron.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+        chevron.centerYAnchor.constraint(equalTo: centerYAnchor),
+        chevron.widthAnchor.constraint(equalToConstant: 11),
+        number.trailingAnchor.constraint(equalTo: chevron.leadingAnchor, constant: -8),
+        number.centerYAnchor.constraint(equalTo: centerYAnchor),
+        label.trailingAnchor.constraint(lessThanOrEqualTo: number.leadingAnchor, constant: -8),
+      ]
+      setAccessibilityRole(.disclosureTriangle)
+      setAccessibilityValue(isOpen ? 1 : 0)
+      setAccessibilityLabel(count.map { "\(title), \($0) symbols" } ?? title)
+      toolTip = isOpen ? "Hide \(title)" : "Show \(title)"
+    } else {
+      constraints.append(label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor))
+      setAccessibilityElement(false)
+    }
+    NSLayoutConstraint.activate(constraints)
+  }
+
+  required init?(coder: NSCoder) { fatalError() }
+
+  override var isFlipped: Bool { true }
+
+  override func mouseDown(with event: NSEvent) {
+    guard isOpen != nil else { return }
+    sendAction(action, to: target)
+  }
+
+  override func accessibilityPerformPress() -> Bool {
+    guard isOpen != nil else { return false }
+    return sendAction(action, to: target)
   }
 }
 

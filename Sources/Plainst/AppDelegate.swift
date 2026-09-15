@@ -168,7 +168,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     add(view, "Writing", #selector(Editor.showWriting(_:)), "1")
     add(view, "Source", #selector(Editor.showSource(_:)), "2")
     view.addItem(.separator())
+    add(view, "Show Outline", #selector(Editor.toggleOutline(_:)), "s", modifiers: [.command, .control])
+    add(view, "Show Preview", #selector(Editor.togglePreview(_:)), "p", modifiers: [.command, .option])
     add(view, "Show Symbols", #selector(Editor.toggleSymbols(_:)), "t", modifiers: [.command, .option])
+    add(view, "Go to Heading…", #selector(Editor.showOutline(_:)), "6", modifiers: [.control])
     view.addItem(.separator())
     add(view, "Zoom In", #selector(Editor.zoomIn(_:)), "+")
     add(view, "Zoom Out", #selector(Editor.zoomOut(_:)), "-")
@@ -273,7 +276,7 @@ enum Guide {
   static let text = """
     = Welcome to Plainst
 
-    Plainst edits one Typst file of prose and math. Press *⌘2* to see the source of this page and *⌘1* to come back.
+    Plainst edits one Typst file of prose and math. Press *⌘2* to see the source of this page and *⌘1* to come back. Press *⌥⌘P* to show the typeset document beside the text, and *⌃6* to jump to a heading.
 
     == Text
 
@@ -300,11 +303,23 @@ enum Guide {
 
     $ sum_(k=1)^n k = (n(n+1))/2 $
 
-    Greek letters and symbols have names: $alpha, beta, pi, infinity, arrow.r$.
+    Greek letters and symbols have names: $alpha, beta, pi, infinity, arrow.r$. Press *⌥⌘T* to browse them all.
+
+    == Labels and references <references>
+
+    A label names the heading, equation, or figure just before it. Write it in angle brackets, like the label after this section's title.
+
+    Numbered things can be referred to by their labels. Turn on equation numbers, label an equation, and refer to it with an \\@ sign followed by the label. Plainst suggests your labels as you type.
+
+    #set math.equation(numbering: "(1)")
+
+    $ e^(i pi) + 1 = 0 $ <euler>
+
+    Euler's identity, @euler, connects five famous constants. Headings need numbers too before you can refer to them, which `#set heading(numbering: "1.")` turns on.
 
     == Everything else
 
-    Plainst keeps any other Typst exactly as written and shows it in grey, like the next line.
+    Plainst keeps any other Typst exactly as written and shows it in grey, like the next line. Show the preview to see its effect on the typeset document.
 
     #set text(lang: "en")
 

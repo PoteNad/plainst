@@ -4,7 +4,7 @@ use typst::syntax::Source;
 use typst_ide::{Completion, CompletionKind, IdeWorld};
 use typst_layout::PagedDocument;
 
-use crate::world::{MAIN_ID, PlainstWorld};
+use crate::world::{LAST_DOCUMENT, MAIN_ID, PlainstWorld};
 use crate::{Utf16Map, json_string};
 
 impl IdeWorld for PlainstWorld {
@@ -36,8 +36,21 @@ pub fn complete_json(text: &str, cursor_utf16: usize, explicit: bool) -> String 
     let Some(cursor) = source.lines().utf16_to_byte(cursor_utf16) else {
         return "{\"from\":0,\"items\":[]}".into();
     };
+    // Labels and references come from the last document that compiled.
+    let document = LAST_DOCUMENT.lock().unwrap_or_else(|e| e.into_inner());
+    complete_in(&source, cursor, explicit, document.as_ref())
+}
+
+/// Completions in `source` at a byte cursor, using `document` for labels when there is one.
+pub(crate) fn complete_in(
+    source: &Source,
+    cursor: usize,
+    explicit: bool,
+    document: Option<&PagedDocument>,
+) -> String {
+    let text = source.text();
     let world = PlainstWorld::new(source.clone());
-    let result = typst_ide::autocomplete(&world, None::<&PagedDocument>, &source, cursor, explicit);
+    let result = typst_ide::autocomplete(&world, document, source, cursor, explicit);
     let Some((from, completions)) = result else {
         return "{\"from\":0,\"items\":[]}".into();
     };

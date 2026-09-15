@@ -31,6 +31,10 @@ public struct TextStyle: OptionSet, Hashable, Sendable {
   /// An equation shown as its source.
   public static let mathSource = TextStyle(rawValue: 1 << 7)
   public static let rawBlock = TextStyle(rawValue: 1 << 8)
+  /// A label such as `<intro>` that names the element before it.
+  public static let label = TextStyle(rawValue: 1 << 9)
+  /// A reference such as `@intro`.
+  public static let reference = TextStyle(rawValue: 1 << 10)
 }
 
 /// Paragraph-level styling. Every character of a line shares one value.
@@ -204,6 +208,10 @@ public struct Presentation: Equatable, Sendable {
 
       case .link:
         add(.link, range)
+      case .label:
+        add(.label, range)
+      case .ref:
+        add(.reference, range)
       case .code:
         add(.unsupported, range)
       case .comment:

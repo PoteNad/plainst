@@ -118,3 +118,23 @@ fn symbol_groups_cover_every_symbol() {
         assert!(codex::SYM.get(line).is_some(), "unknown symbol {line} in symbol_groups.txt");
     }
 }
+
+#[test]
+fn completes_references_from_the_compiled_document() {
+    use typst::syntax::Source;
+    let text = "#set heading(numbering: \"1.\")\n= Introduction <intro>\n\nSee @";
+    let source = Source::new(*world::MAIN_ID, text.to_owned());
+    let document = typst::compile::<typst_layout::PagedDocument>(&world::PlainstWorld::new(source.clone()))
+        .output
+        .expect("the document compiles");
+    let json = ide::complete_in(&source, text.len(), false, Some(&document));
+    assert!(json.contains("\"kind\":\"label\",\"label\":\"intro\""), "{json}");
+    assert!(json.contains("\"detail\":\"Introduction\""), "{json}");
+}
+
+#[test]
+fn outline_reports_labels_and_references() {
+    let json = outline_json("= Intro <intro>\n\nSee @intro.\n");
+    assert!(json.contains("\"k\":\"label\",\"s\":8,\"e\":15"), "{json}");
+    assert!(json.contains("\"k\":\"ref\",\"s\":21,\"e\":27,\"m\":[[21,22]]"), "{json}");
+}

@@ -56,7 +56,7 @@ fn elements(text: &str) -> Vec<Element> {
     walker.elements
 }
 
-const KINDS: [&str; 14] = [
+const KINDS: [&str; 16] = [
     "heading",
     "strong",
     "emph",
@@ -71,6 +71,8 @@ const KINDS: [&str; 14] = [
     "list",
     "enum",
     "term",
+    "label",
+    "ref",
 ];
 const SHORTHANDS: [&str; 4] = ["\u{2013}", "\u{2014}", "\u{2026}", "\u{00a0}"];
 
@@ -215,9 +217,15 @@ impl Walker<'_> {
                 self.elements
                     .push(Element::new("link", self.u(offset), self.u(end)))
             }
-            SyntaxKind::Label | SyntaxKind::Ref => {
+            SyntaxKind::Label => {
                 self.elements
-                    .push(Element::new("code", self.u(offset), self.u(end)))
+                    .push(Element::new("label", self.u(offset), self.u(end)))
+            }
+            SyntaxKind::Ref => {
+                // `@name` and an optional `[supplement]`; the `@` is markup.
+                let mut element = Element::new("ref", self.u(offset), self.u(end));
+                element.markers.push((self.u(offset), self.u(offset + 1)));
+                self.elements.push(element);
             }
             SyntaxKind::LineComment | SyntaxKind::BlockComment => {
                 self.elements

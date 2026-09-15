@@ -237,3 +237,35 @@ import Testing
     #expect(Engine.symbols.contains(TypstSymbol(name: "arrow.r.double", value: "⇒")))
   }
 }
+
+@Suite struct Navigation {
+  @Test func listsHeadingsWithoutMarkup() {
+    let text = "= The *big* idea <intro>\n\nBody.\n\n== Why $x^2$ // aside\n=== Deeper\n" as NSString
+    let headings = DocumentOutline.headings(text: text, elements: Engine.outline(text as String))
+    #expect(headings.map(\.title) == ["The big idea", "Why $x^2$", "Deeper"])
+    #expect(headings.map(\.level) == [1, 2, 3])
+    #expect(DocumentOutline.currentHeading(in: headings, at: 28) == 0)
+    #expect(DocumentOutline.currentHeading(in: headings, at: text.length) == 2)
+    #expect(DocumentOutline.currentHeading(in: [], at: 3) == nil)
+  }
+
+  @Test func matchesBracketsBesideTheCursor() {
+    let text = "f(a [b] (c)) + g[d)" as NSString
+    let all = NSRange(location: 0, length: text.length)
+    func pair(_ caret: Int, strings: Bool = false) -> [Int]? {
+      BracketMatch.pair(in: text, caret: caret, within: all, skipStrings: strings)
+        .map { [$0.0.location, $0.1.location] }
+    }
+    #expect(pair(2) == [1, 11])  // after "("
+    #expect(pair(12) == [11, 1])  // after the last ")"
+    #expect(pair(4) == [4, 6])  // before "["
+    #expect(pair(3) == nil)
+    #expect(pair(17) == nil)  // "[" closed by the wrong bracket
+    let quoted = "#f(\")\", x)" as NSString
+    #expect(
+      BracketMatch.pair(in: quoted, caret: 3, within: NSRange(location: 0, length: quoted.length), skipStrings: true)
+        .map { $0.1.location } == 9)
+    let escaped = "\\(a)" as NSString
+    #expect(BracketMatch.pair(in: escaped, caret: 4, within: NSRange(location: 0, length: 4), skipStrings: false) == nil)
+  }
+}

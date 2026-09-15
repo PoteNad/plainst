@@ -49,6 +49,21 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
   private var wordCount = 0
   let symbols = SymbolsViewController()
   private var symbolsItem: NSSplitViewItem!
+  let outlineSidebar = OutlineSidebarController()
+  private var outlineItem: NSSplitViewItem!
+  private var sidebarOutlineVersion = -1
+  let previewPane = PreviewViewController()
+  private var previewItem: NSSplitViewItem!
+  /// The bracket beside the cursor and its partner, while highlighted.
+  var highlightedBrackets: (NSRange, NSRange)?
+  /// Problems drawn at the end of their lines, one per line, once typing pauses.
+  private(set) var annotations: [Annotation] = []
+
+  struct Annotation {
+    var location: Int
+    var diagnostic: Diagnostic
+    var extra: Int
+  }
   /// Completions, snippet placeholders and automatic pairs.
   lazy var assistant = TypingAssistant(editor: self)
   /// The text most recently typed, so completions know what triggered a change.
@@ -75,7 +90,8 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
       frame: NSRect(x: 0, y: 0, width: 900, height: 640), textContainer: container)
     let window = NSWindow(
       contentRect: NSRect(x: 0, y: 0, width: 920, height: 720),
-      styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false
+      styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+      backing: .buffered, defer: false
     )
     super.init(window: window)
     window.delegate = self
@@ -156,14 +172,29 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
     documentController.view = root
     symbols.editor = self
     let split = NSSplitViewController()
+    // Headings sit in a sidebar, like Preview's table of contents.
+    outlineSidebar.editor = self
+    outlineItem = NSSplitViewItem(sidebarWithViewController: outlineSidebar)
+    outlineItem.canCollapse = true
+    outlineItem.minimumThickness = 180
+    outlineItem.maximumThickness = 340
+    outlineItem.isCollapsed = !UserDefaults.standard.bool(forKey: PreferenceKey.outlineVisible)
+    split.addSplitViewItem(outlineItem)
     split.addSplitViewItem(NSSplitViewItem(viewController: documentController))
+    // The typeset preview sits between the text and the symbols, like a second page view.
+    previewItem = NSSplitViewItem(viewController: previewPane)
+    previewItem.canCollapse = true
+    previewItem.minimumThickness = 260
+    previewItem.holdingPriority = .init(rawValue: 255)
+    previewItem.isCollapsed = !UserDefaults.standard.bool(forKey: PreferenceKey.previewVisible)
+    split.addSplitViewItem(previewItem)
     symbolsItem = NSSplitViewItem(inspectorWithViewController: symbols)
     symbolsItem.canCollapse = true
     symbolsItem.minimumThickness = 268
     symbolsItem.maximumThickness = 380
     symbolsItem.isCollapsed = !UserDefaults.standard.bool(forKey: PreferenceKey.symbolsVisible)
     split.addSplitViewItem(symbolsItem)
-    if !isAutomatedCheck { split.splitView.autosaveName = "PlainstSymbolsSplit" }
+    if !isAutomatedCheck { split.splitView.autosaveName = "PlainstEditorSplit" }
     window.contentViewController = split
     if !window.setFrameUsingName("PlainstDocumentWindow") {
       window.setContentSize(NSSize(width: 920, height: 720))
@@ -178,7 +209,7 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
       view.translatesAutoresizingMaskIntoConstraints = false
     }
     NSLayoutConstraint.activate([
-      scroll.topAnchor.constraint(equalTo: root.topAnchor),
+      scroll.topAnchor.constraint(equalTo: root.safeAreaLayoutGuide.topAnchor),
       scroll.leadingAnchor.constraint(equalTo: root.leadingAnchor),
       scroll.trailingAnchor.constraint(equalTo: root.trailingAnchor),
       scroll.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
@@ -289,6 +320,7 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
     }
     updatePreview()
     updateStatus()
+    clearAnnotations()
     scheduleCompile()
     let typed = lastTyped
     lastTyped = nil
@@ -314,6 +346,20 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
     assistant.selectionDidChange()
     guard !textView.hasMarkedText(), !isTrackingMouse else { return }
     refreshPresentation()
+    updateBracketHighlight()
+    updateOutlineSidebar()
+  }
+
+  func updateOutlineSidebar() {
+    guard outlineVisible else { return }
+    let caret = textView.selectedRange().location
+    if sidebarOutlineVersion != outlineVersion {
+      sidebarOutlineVersion = outlineVersion
+      outlineSidebar.update(
+        headings: DocumentOutline.headings(text: storage.mutableString, elements: elements), caret: caret)
+    } else {
+      outlineSidebar.follow(caret: caret)
+    }
   }
 
   func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
@@ -590,6 +636,10 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
       } else if style.contains(.mathSource) {
         font = Typefaces.editorMono(size: size * 0.8)
         color = .systemIndigo
+      } else if style.contains(.label) {
+        // Labels stay visible but quiet, like a tag on the element before them.
+        font = Typefaces.editorMono(size: size * 0.7)
+        color = .tertiaryLabelColor
       } else if style.contains(.unsupported) || style.contains(.comment) {
         font = Typefaces.editorMono(size: size * 0.78, italic: style.contains(.comment))
         color = style.contains(.comment) ? .tertiaryLabelColor : .secondaryLabelColor
@@ -601,6 +651,7 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
           size: size, bold: style.contains(.bold) || run.heading > 0,
           italic: style.contains(.italic))
       }
+      if style.contains(.reference) { color = .linkColor }
       if style.contains(.marker) { color = .tertiaryLabelColor }
       result[.font] = font
       let lineSize = bodySize * Presentation.headingScale(run.paragraph.heading)
@@ -630,8 +681,10 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
         color = .systemPink
       } else if style.contains(.code) || style.contains(.rawBlock) {
         color = .systemBrown
-      } else if style.contains(.link) {
+      } else if style.contains(.link) || style.contains(.reference) {
         color = .linkColor
+      } else if style.contains(.label) {
+        color = .systemTeal
       }
       if style.contains(.marker) { color = .secondaryLabelColor }
       paragraph.minimumLineHeight = (sourceSize * 1.5).rounded()
@@ -841,6 +894,7 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
   /// Draws the source card of an equation being edited, highlights behind inline equation
   /// source, and a quiet highlight on the rendered equation under the pointer.
   func drawDecorations(forGlyphRange glyphs: NSRange, at origin: NSPoint) {
+    drawAnnotations(forCharacters: layout.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil))
     guard concealing else { return }
     let characters = layout.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
     let accent = NSColor.controlAccentColor
@@ -1003,9 +1057,11 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
   func mouseMoved(to point: NSPoint?) {
     let hovered = concealing ? point.flatMap { renderedMath(at: $0) } : nil
     if hovered != nil { NSCursor.pointingHand.set() }
+    let problem = hovered == nil ? point.flatMap { diagnostic(at: $0) } : nil
+    let tip = hovered != nil ? "Edit equation" : problem.map(Self.describe)
+    if textView.toolTip != tip { textView.toolTip = tip }
     guard hovered != hoveredMath else { return }
     hoveredMath = hovered
-    textView.toolTip = hovered == nil ? nil : "Edit equation"
     textView.needsDisplay = true
   }
 
@@ -1099,8 +1155,9 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
     DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
       guard let self, generation == self.compileGeneration else { return }
       let text = self.text
+      let pdf = self.previewVisible
       Self.engineQueue.async {
-        let result = Engine.compile(text, pdf: false)
+        let result = Engine.compile(text, pdf: pdf)
         DispatchQueue.main.async {
           MainActor.assumeIsolated {
             guard generation == self.compileGeneration else { return }
@@ -1119,6 +1176,7 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
     let full = NSRange(location: 0, length: storage.length)
     layout.removeTemporaryAttribute(.underlineStyle, forCharacterRange: full)
     layout.removeTemporaryAttribute(.underlineColor, forCharacterRange: full)
+    if previewVisible { previewPane.show(pdf: result.pdf, errors: result.errors.count) }
     if text == self.text {
       for diagnostic in diagnostics {
         guard var range = diagnostic.range, storage.length > 0 else { continue }
@@ -1132,6 +1190,125 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
       }
     }
     updateStatus()
+    // Messages at the ends of lines wait for a pause, so they don't flicker while typing.
+    let generation = compileGeneration
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+      guard let self, generation == self.compileGeneration, text == self.text else { return }
+      self.showAnnotations()
+    }
+  }
+
+  private func showAnnotations() {
+    let text = storage.mutableString
+    var byLine: [Int: Annotation] = [:]
+    for diagnostic in diagnostics {
+      guard let range = diagnostic.range, range.location <= text.length else { continue }
+      let line = text.lineRange(for: NSRange(location: min(range.location, text.length), length: 0))
+      if var existing = byLine[line.location] {
+        existing.extra += 1
+        if diagnostic.isError && !existing.diagnostic.isError { existing.diagnostic = diagnostic }
+        byLine[line.location] = existing
+      } else {
+        byLine[line.location] = Annotation(location: range.location, diagnostic: diagnostic, extra: 0)
+      }
+    }
+    annotations = byLine.values.sorted { $0.location < $1.location }
+    textView.needsDisplay = true
+  }
+
+  /// Hides line-end messages while the text changes under them.
+  private func clearAnnotations() {
+    guard !annotations.isEmpty else { return }
+    annotations = []
+    textView.needsDisplay = true
+  }
+
+  /// Where a problem's message is drawn, in text view coordinates, and whether it fits beside
+  /// the text or only as an icon in the margin.
+  private func annotationRect(_ annotation: Annotation) -> (rect: NSRect, compact: Bool)? {
+    let text = storage.mutableString
+    guard annotation.location <= text.length, storage.length > 0 else { return nil }
+    let line = text.lineRange(for: NSRange(location: min(annotation.location, text.length), length: 0))
+    var last = NSMaxRange(line) - 1
+    while last > line.location, [0x0A, 0x0D].contains(text.character(at: last)) { last -= 1 }
+    last = max(0, min(last, storage.length - 1))
+    let glyph = layout.glyphIndexForCharacter(at: last)
+    guard glyph < layout.numberOfGlyphs else { return nil }
+    let fragment = layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+    let used = layout.lineFragmentUsedRect(forGlyphAt: glyph, effectiveRange: nil)
+    let origin = textView.textContainerOrigin
+    let height = NSFont.smallSystemFontSize + 7
+    let y = origin.y + fragment.minY + ((used.height - height) / 2).rounded()
+    let start = origin.x + used.maxX + 14
+    let limit = textView.bounds.width - 12
+    if limit - start >= 90 {
+      return (NSRect(x: start, y: y, width: limit - start, height: height), false)
+    }
+    let marginX = origin.x + container.size.width + 4
+    guard textView.bounds.width - marginX >= 16 else { return nil }
+    return (NSRect(x: marginX, y: y, width: 16, height: height), true)
+  }
+
+  private func drawAnnotations(forCharacters characters: NSRange) {
+    guard !annotations.isEmpty else { return }
+    let font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+    for annotation in annotations where NSLocationInRange(annotation.location, characters)
+      || annotation.location == NSMaxRange(characters) && annotation.location == storage.length
+    {
+      guard let (rect, compact) = annotationRect(annotation) else { continue }
+      let color: NSColor = annotation.diagnostic.isError ? .systemRed : .systemOrange
+      let icon = NSImage(
+        systemSymbolName: annotation.diagnostic.isError ? "xmark.octagon.fill" : "exclamationmark.triangle.fill",
+        accessibilityDescription: nil)?
+        .withSymbolConfiguration(.init(pointSize: NSFont.smallSystemFontSize - 1, weight: .semibold)
+          .applying(.init(paletteColors: [color])))
+      if compact {
+        icon?.draw(in: NSRect(x: rect.minX, y: rect.midY - 6, width: 12, height: 12).integral,
+          from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+        continue
+      }
+      var message = annotation.diagnostic.message
+      if annotation.extra > 0 { message += "  +\(annotation.extra)" }
+      let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
+      let textWidth = min((message as NSString).size(withAttributes: attributes).width, rect.width - 30)
+      let capsule = NSRect(x: rect.minX, y: rect.minY, width: textWidth + 30, height: rect.height)
+      color.withAlphaComponent(0.1).setFill()
+      NSBezierPath(roundedRect: capsule, xRadius: rect.height / 2, yRadius: rect.height / 2).fill()
+      icon?.draw(in: NSRect(x: capsule.minX + 7, y: capsule.midY - 6, width: 12, height: 12).integral,
+        from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+      let paragraph = NSMutableParagraphStyle()
+      paragraph.lineBreakMode = .byTruncatingTail
+      var textAttributes = attributes
+      textAttributes[.paragraphStyle] = paragraph
+      (message as NSString).draw(
+        with: NSRect(x: capsule.minX + 23, y: capsule.minY + 2, width: textWidth, height: rect.height - 2),
+        options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine], attributes: textAttributes)
+    }
+  }
+
+  /// The problem under the pointer, from its underline or its line-end message.
+  private func diagnostic(at point: NSPoint) -> Diagnostic? {
+    for annotation in annotations {
+      if let (rect, _) = annotationRect(annotation), rect.insetBy(dx: -2, dy: -2).contains(point) {
+        return annotation.diagnostic
+      }
+    }
+    let origin = textView.textContainerOrigin
+    let local = NSPoint(x: point.x - origin.x, y: point.y - origin.y)
+    guard layout.numberOfGlyphs > 0 else { return nil }
+    var fraction: CGFloat = 0
+    let glyph = layout.glyphIndex(for: local, in: container, fractionOfDistanceThroughGlyph: &fraction)
+    let glyphRect = layout.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: container)
+    guard glyphRect.insetBy(dx: -1, dy: -2).contains(local) else { return nil }
+    let character = layout.characterIndexForGlyph(at: glyph)
+    return diagnostics.first { diagnostic in
+      guard let range = diagnostic.range else { return false }
+      return NSLocationInRange(character, range) || (range.length == 0 && character == range.location)
+    }
+  }
+
+  private static func describe(_ diagnostic: Diagnostic) -> String {
+    ([diagnostic.message] + diagnostic.hints.map { "Hint: \($0)" }).joined(separator: "\n")
   }
 
   func updateStatus() {
@@ -1213,6 +1390,63 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
 
   private static let viewItem = NSToolbarItem.Identifier("view")
   private static let symbolsToolbarItem = NSToolbarItem.Identifier("symbols")
+  private static let outlineToolbarItem = NSToolbarItem.Identifier("outline")
+
+  var outlineVisible: Bool { !outlineItem.isCollapsed }
+
+  @objc func toggleOutline(_ sender: Any?) {
+    let show = outlineItem.isCollapsed
+    if show {
+      sidebarOutlineVersion = outlineVersion
+      outlineSidebar.update(
+        headings: DocumentOutline.headings(text: storage.mutableString, elements: elements),
+        caret: textView.selectedRange().location)
+    }
+    NSAnimationContext.runAnimationGroup { context in
+      context.duration = 0.2
+      outlineItem.animator().isCollapsed = !show
+    }
+    if !isAutomatedCheck { UserDefaults.standard.set(show, forKey: PreferenceKey.outlineVisible) }
+  }
+  private static let previewToolbarItem = NSToolbarItem.Identifier("preview")
+
+  var previewVisible: Bool { !previewItem.isCollapsed }
+
+  @objc func togglePreview(_ sender: Any?) {
+    let show = previewItem.isCollapsed
+    if show && !previewPane.hasDocument, let window {
+      // Open the preview beside the text rather than squeezing the text column.
+      var frame = window.frame
+      let screen = window.screen?.visibleFrame ?? frame
+      let wanted = min(frame.width + 420, screen.width)
+      if wanted > frame.width {
+        frame.origin.x = max(screen.minX, min(frame.origin.x, screen.maxX - wanted))
+        frame.size.width = wanted
+        window.setFrame(frame, display: true, animate: false)
+      }
+    }
+    if show, !previewPane.hasDocument, let split = window?.contentViewController as? NSSplitViewController,
+      let divider = split.splitViewItems.firstIndex(of: previewItem).map({ $0 - 1 })
+    {
+      // The first time, split the space between the text and the preview evenly.
+      previewItem.isCollapsed = false
+      DispatchQueue.main.async { [self] in
+        split.splitView.layoutSubtreeIfNeeded()
+        let panes = split.splitView.arrangedSubviews
+        guard panes.count == split.splitViewItems.count else { return }
+        let start = outlineVisible ? panes[0].frame.maxX : 0
+        let end = symbolsVisible ? panes[panes.count - 1].frame.minX : split.splitView.bounds.width
+        split.splitView.setPosition((start + (end - start) / 2).rounded(), ofDividerAt: divider)
+      }
+    } else {
+      NSAnimationContext.runAnimationGroup { context in
+        context.duration = 0.2
+        previewItem.animator().isCollapsed = !show
+      }
+    }
+    if !isAutomatedCheck { UserDefaults.standard.set(show, forKey: PreferenceKey.previewVisible) }
+    if show { scheduleCompile(delay: 0) }
+  }
 
   var symbolsVisible: Bool { !symbolsItem.isCollapsed }
 
@@ -1237,7 +1471,10 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
   private var viewGroup: NSToolbarItemGroup?
 
   func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-    [.flexibleSpace, Self.viewItem, Self.symbolsToolbarItem]
+    [
+      Self.outlineToolbarItem, .sidebarTrackingSeparator, .flexibleSpace, Self.viewItem,
+      Self.previewToolbarItem, Self.symbolsToolbarItem,
+    ]
   }
 
   func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -1248,6 +1485,28 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
     _ toolbar: NSToolbar, itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
     willBeInsertedIntoToolbar flag: Bool
   ) -> NSToolbarItem? {
+    if itemIdentifier == Self.outlineToolbarItem {
+      let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+      item.image = NSImage(systemSymbolName: "list.bullet.indent", accessibilityDescription: "Outline")
+      item.label = "Outline"
+      item.paletteLabel = "Outline"
+      item.toolTip = "Show or hide the headings, and jump to one (⌃⌘S)"
+      item.target = self
+      item.action = #selector(toggleOutline(_:))
+      item.isBordered = true
+      return item
+    }
+    if itemIdentifier == Self.previewToolbarItem {
+      let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+      item.image = NSImage(systemSymbolName: "doc.text.magnifyingglass", accessibilityDescription: "Preview")
+      item.label = "Preview"
+      item.paletteLabel = "Preview"
+      item.toolTip = "Show or hide the typeset document, as it will export to PDF (⌥⌘P)"
+      item.target = self
+      item.action = #selector(togglePreview(_:))
+      item.isBordered = true
+      return item
+    }
     if itemIdentifier == Self.symbolsToolbarItem {
       let item = NSToolbarItem(itemIdentifier: itemIdentifier)
       item.image = NSImage(systemSymbolName: "sum", accessibilityDescription: "Symbols")
@@ -1442,6 +1701,10 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
       menuItem.state = statusVisible ? .on : .off
     case #selector(toggleSymbols(_:)):
       menuItem.title = symbolsVisible ? "Hide Symbols" : "Show Symbols"
+    case #selector(toggleOutline(_:)):
+      menuItem.title = outlineVisible ? "Hide Outline" : "Show Outline"
+    case #selector(togglePreview(_:)):
+      menuItem.title = previewVisible ? "Hide Preview" : "Show Preview"
     case #selector(zoomIn(_:)):
       return zoomPercent < 400
     case #selector(zoomOut(_:)):

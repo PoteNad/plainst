@@ -108,6 +108,10 @@ final class TypingAssistant {
     if character == "#" && !inCode {
       return request(explicit: false)
     }
+    // A reference to a label: "@" at the start of a word, not inside an email address.
+    if character == "@" && !inCode && wordLength(before: caret.location - 1) == 0 {
+      return request(explicit: false)
+    }
     if inCode && (character == "." || (isWordCharacter && wordLength(before: caret.location) >= 2)) {
       return request(explicit: false)
     }

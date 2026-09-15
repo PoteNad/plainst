@@ -21,6 +21,8 @@ pub(crate) static MAIN_ID: LazyLock<FileId> = LazyLock::new(|| file_id("main.typ
 static MATH_ID: LazyLock<FileId> = LazyLock::new(|| file_id("equation.typ"));
 /// The last compiled document source, kept so Typst can reparse incrementally.
 static DOCUMENT: Mutex<Option<Source>> = Mutex::new(None);
+/// The last document that compiled without errors, which completions use to find labels.
+pub(crate) static LAST_DOCUMENT: Mutex<Option<PagedDocument>> = Mutex::new(None);
 /// Compilations share Typst's global memoization cache, so run them one at a time.
 static COMPILER: Mutex<()> = Mutex::new(());
 
@@ -150,6 +152,7 @@ pub fn compile(text: &str, want_pdf: bool) -> CompileOutput {
                     Err(errors) => diagnostics.extend(errors),
                 }
             }
+            *LAST_DOCUMENT.lock().unwrap_or_else(|e| e.into_inner()) = Some(document);
         }
         Err(errors) => diagnostics.extend(errors),
     }
