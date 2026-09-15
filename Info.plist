@@ -59,6 +59,8 @@
 	<string>Plainst</string>
 	<key>CFBundleIconFile</key>
 	<string>Plainst</string>
+	<key>CFBundleIconName</key>
+	<string>Plainst</string>
 	<key>CFBundleIdentifier</key>
 	<string>io.github.PoteNad.plainst</string>
 	<key>CFBundleName</key>

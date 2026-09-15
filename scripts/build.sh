@@ -15,6 +15,15 @@ APP="$PWD/build/Plainst.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/Plainst "$APP/Contents/MacOS/Plainst"
+# The Liquid Glass icon for macOS 26 and later; Plainst.icns covers earlier versions.
+if ! xcrun actool Assets/Plainst.icon \
+  --compile "$APP/Contents/Resources" \
+  --platform macosx \
+  --minimum-deployment-target 13.0 \
+  --app-icon Plainst \
+  --output-partial-info-plist "$PWD/build/Plainst-icon-info.plist" >/dev/null; then
+  rm -f "$APP/Contents/Resources/Assets.car"
+fi
 cp Assets/Plainst.icns "$APP/Contents/Resources/Plainst.icns"
 cp LICENSE THIRD_PARTY_NOTICES.md "$APP/Contents/Resources/"
 cp Info.plist "$APP/Contents/Info.plist"

@@ -49,6 +49,12 @@ for ARCH in arm64 x86_64; do
 done
 printf 'Linked against macOS SDK %s\n' "$PLAINST_SDK_VERSION"
 
+xcrun actool Assets/Plainst.icon \
+  --compile "$APP/Contents/Resources" \
+  --platform macosx \
+  --minimum-deployment-target 13.0 \
+  --app-icon Plainst \
+  --output-partial-info-plist "$DIST/Plainst-icon-info.plist" >/dev/null
 cp Assets/Plainst.icns "$APP/Contents/Resources/Plainst.icns"
 cp LICENSE THIRD_PARTY_NOTICES.md "$APP/Contents/Resources/"
 cp Info.plist "$APP/Contents/Info.plist"

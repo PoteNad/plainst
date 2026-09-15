@@ -1,47 +1,29 @@
 import AppKit
 
-// Draws the Plainst icon: PoteNad's paper tile with a line of text and an equation.
-// Run from the repository root: swift scripts/make-icon.swift
+// Renders the Liquid Glass icon in Assets/Plainst.icon with Icon Composer, then builds
+// Assets/Plainst.icns from it for macOS versions before 26.
+// Edit the layers in Icon Composer, then run from the repository root:
+//   swift scripts/make-icon.swift
 
-func drawIcon(in size: CGFloat) {
-  let scale = size / 1024
-  let context = NSGraphicsContext.current!.cgContext
-  context.scaleBy(x: scale, y: scale)
-  // AppKit's origin is bottom-left; the artwork below is laid out top-down.
-  context.translateBy(x: 0, y: 1024)
-  context.scaleBy(x: 1, y: -1)
+let ictool =
+  "/Applications/Xcode.app/Contents/Applications/Icon Composer.app/Contents/Executables/ictool"
+let render = Process()
+render.executableURL = URL(fileURLWithPath: ictool)
+render.arguments = [
+  "Assets/Plainst.icon", "--export-image", "--output-file", "Assets/Plainst-Liquid.png",
+  "--platform", "macOS", "--rendition", "Default", "--width", "1024", "--height", "1024",
+  "--scale", "1",
+]
+render.standardOutput = FileHandle.nullDevice
+try render.run()
+render.waitUntilExit()
+guard render.terminationStatus == 0 else { fatalError("Icon Composer could not render the icon") }
 
-  let shadow = NSBezierPath(roundedRect: NSRect(x: 104, y: 126, width: 816, height: 816), xRadius: 184, yRadius: 184)
-  NSColor(white: 0, alpha: 0.18).setFill()
-  shadow.fill()
-  let tile = NSBezierPath(roundedRect: NSRect(x: 104, y: 104, width: 816, height: 816), xRadius: 184, yRadius: 184)
-  NSGradient(starting: .white, ending: NSColor(srgbRed: 0xF1 / 255, green: 0xF2 / 255, blue: 0xF5 / 255, alpha: 1))!
-    .draw(in: tile, angle: -90)
-  NSColor(white: 0, alpha: 0.1).setStroke()
-  let border = NSBezierPath(roundedRect: NSRect(x: 106, y: 106, width: 812, height: 812), xRadius: 182, yRadius: 182)
-  border.lineWidth = 4
-  border.stroke()
-
-  let ink = NSColor(srgbRed: 0x1D / 255, green: 0x1D / 255, blue: 0x1F / 255, alpha: 1)
-  ink.setFill()
-  NSBezierPath(roundedRect: NSRect(x: 222, y: 250, width: 420, height: 54), xRadius: 27, yRadius: 27).fill()
-  NSBezierPath(roundedRect: NSRect(x: 222, y: 380, width: 580, height: 34), xRadius: 17, yRadius: 17).fill()
-  NSBezierPath(roundedRect: NSRect(x: 222, y: 480, width: 500, height: 34), xRadius: 17, yRadius: 17).fill()
-
-  // A display equation in Typst's accent blue.
-  let blue = NSColor(srgbRed: 0x34 / 255, green: 0x78 / 255, blue: 0xF6 / 255, alpha: 1)
-  let font = NSFont(name: "Times New Roman Italic", size: 250) ?? NSFont.systemFont(ofSize: 250)
-  let equation = NSAttributedString(string: "x²", attributes: [.font: font, .foregroundColor: blue])
-  context.saveGState()
-  context.translateBy(x: 0, y: 1024)
-  context.scaleBy(x: 1, y: -1)
-  let bounds = equation.size()
-  equation.draw(at: NSPoint(x: 512 - bounds.width / 2, y: 1024 - 840))
-  context.restoreGState()
+let sourceURL = URL(fileURLWithPath: "Assets/Plainst-Liquid.png")
+guard let source = NSImage(contentsOf: sourceURL) else {
+  fatalError("Could not load \(sourceURL.path)")
 }
 
-let directory = URL(fileURLWithPath: "build/Plainst.iconset")
-try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 var images: [Int: Data] = [:]
 for pixels in [16, 32, 64, 128, 256, 512, 1024] {
   let bitmap = NSBitmapImageRep(
@@ -50,7 +32,10 @@ for pixels in [16, 32, 64, 128, 256, 512, 1024] {
     bytesPerRow: 0, bitsPerPixel: 0)!
   NSGraphicsContext.saveGraphicsState()
   NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
-  drawIcon(in: CGFloat(pixels))
+  NSGraphicsContext.current?.imageInterpolation = .high
+  source.draw(
+    in: NSRect(x: 0, y: 0, width: pixels, height: pixels),
+    from: NSRect(origin: .zero, size: source.size), operation: .copy, fraction: 1)
   NSGraphicsContext.restoreGraphicsState()
   images[pixels] = bitmap.representation(using: .png, properties: [:])!
 }
@@ -74,5 +59,4 @@ var icon = Data("icns".utf8)
 icon.append(bigEndian(chunks.count + 8))
 icon.append(chunks)
 try icon.write(to: URL(fileURLWithPath: "Assets/Plainst.icns"))
-try images[1024]!.write(to: URL(fileURLWithPath: "Assets/Plainst.png"))
-print("Wrote Assets/Plainst.icns")
+print("Wrote Assets/Plainst-Liquid.png and Assets/Plainst.icns")
