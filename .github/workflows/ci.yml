@@ -22,13 +22,26 @@ jobs:
           xcodebuild -version
           printf 'macOS SDK %s\n' "$(xcrun --sdk macosx --show-sdk-version)"
 
+      # Compiling Typst takes most of a cold build. Caches saved on main are also available to
+      # the Release workflow, so tags reuse them.
       - name: Cache Rust build
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
+            ~/.cargo/git
             engine/target
-          key: engine-${{ runner.os }}-${{ hashFiles('engine/Cargo.lock') }}
+          key: engine-v2-${{ runner.os }}-${{ hashFiles('engine/Cargo.lock') }}
+          restore-keys: engine-v2-${{ runner.os }}-
 
       - name: Test
         run: ./scripts/check.sh
+
+      - name: Build the engine for release
+        if: github.event_name == 'push'
+        run: |
+          for TRIPLE in aarch64-apple-darwin x86_64-apple-darwin; do
+            rustup target add "$TRIPLE"
+            MACOSX_DEPLOYMENT_TARGET=13.0 cargo build --release --locked \
+              --manifest-path engine/Cargo.toml --target "$TRIPLE"
+          done

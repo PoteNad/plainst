@@ -6,6 +6,7 @@ on:
       - "v*"
 
 permissions:
+  actions: read
   contents: write
 
 jobs:
@@ -21,8 +22,40 @@ jobs:
           xcodebuild -version
           printf 'macOS SDK %s\n' "$(xcrun --sdk macosx --show-sdk-version)"
 
-      - name: Test
-        run: ./scripts/check.sh
+      - name: Restore Rust build
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            engine/target
+          key: engine-v2-${{ runner.os }}-${{ hashFiles('engine/Cargo.lock') }}
+          restore-keys: engine-v2-${{ runner.os }}-
+
+      # CI already runs every check on each commit pushed to main. Wait for that result instead
+      # of repeating it, and run the checks here only when CI never saw this commit.
+      - name: Require passing checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          runs() {
+            gh run list --repo "$GITHUB_REPOSITORY" --workflow CI --commit "$GITHUB_SHA" \
+              --json status,conclusion --jq "$1"
+          }
+          if [ "$(runs 'length')" = "0" ]; then
+            echo "CI has not run on $GITHUB_SHA, so running the checks here."
+            ./scripts/check.sh
+            exit 0
+          fi
+          while [ "$(runs 'map(select(.status != "completed")) | length')" != "0" ]; do
+            echo "Waiting for CI on $GITHUB_SHA…"
+            sleep 30
+          done
+          if [ "$(runs 'map(select(.conclusion == "success")) | length')" = "0" ]; then
+            echo "CI did not pass on $GITHUB_SHA." >&2
+            exit 1
+          fi
+          echo "CI passed on $GITHUB_SHA."
 
       - name: Build and package
         run: |
