@@ -62,7 +62,10 @@ rm -f "$ARCHIVE" "$DISK_IMAGE" "$DIST/Plainst-macOS.zip" "$DIST/Plainst-macOS.dm
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$ARCHIVE"
 cp "$ARCHIVE" "$DIST/Plainst-macOS.zip"
 (cd "$DIST" && shasum -a 256 "$ARCHIVE_NAME" > "$ARCHIVE_NAME.sha256")
-hdiutil create -volname Plainst -srcfolder "$STAGE" -ov -format UDZO "$DISK_IMAGE"
+# hdiutil can size the image too small for a large app, so give it room explicitly.
+STAGE_MB="$(du -sm "$STAGE" | cut -f1)"
+hdiutil create -volname Plainst -srcfolder "$STAGE" -size "$((STAGE_MB + STAGE_MB / 4 + 20))m" \
+  -ov -format UDZO "$DISK_IMAGE"
 cp "$DISK_IMAGE" "$DIST/Plainst-macOS.dmg"
 (cd "$DIST" && shasum -a 256 "$DISK_IMAGE_NAME" > "$DISK_IMAGE_NAME.sha256")
 printf 'Created %s and %s\n' "$ARCHIVE" "$DISK_IMAGE"
