@@ -347,6 +347,16 @@ private final class DividerSplitView: NSSplitView {
   /// Returns true when the double-click on the divider at an index was handled.
   var onDoubleClick: ((Int) -> Bool)?
 
+  /// The window's content runs under the toolbar, so dividers stop at the toolbar's edge
+  /// instead of drawing a line across the title bar.
+  override func drawDivider(in rect: NSRect) {
+    let top = bounds.maxY - safeAreaInsets.top
+    guard rect.maxY > top else { return super.drawDivider(in: rect) }
+    let visible = NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: max(0, top - rect.minY))
+    guard visible.height > 0 else { return }
+    super.drawDivider(in: visible)
+  }
+
   override func mouseDown(with event: NSEvent) {
     if event.clickCount == 2, let index = divider(at: convert(event.locationInWindow, from: nil)),
       onDoubleClick?(index) == true

@@ -44,7 +44,7 @@ enum AppAppearance: String, CaseIterable {
   }
 }
 
-/// How large Writing text appears at 100% zoom, relative to Typst's proportions.
+/// How large the Writing view draws the document, which never changes the document itself.
 enum WritingSize: Double, CaseIterable {
   case small = 0.9
   case medium = 1
@@ -53,10 +53,10 @@ enum WritingSize: Double, CaseIterable {
 
   var title: String {
     switch self {
-    case .small: "Small"
-    case .medium: "Medium"
-    case .large: "Large"
-    case .extraLarge: "Extra Large"
+    case .small: "90%"
+    case .medium: "100%"
+    case .large: "115%"
+    case .extraLarge: "130%"
     }
   }
 }
@@ -247,7 +247,9 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
     describe(
       modeControl,
       "Choose whether documents open showing formatted text or their Typst source. You can switch any time with ⌘1 and ⌘2.")
-    describe(writingSize, "Set how large text appears in the Writing view at 100% zoom.")
+    describe(
+      writingSize,
+      "Set how large the Writing view draws documents. This changes what you see, not the document; use Format ▸ Document Style for the document's own font and size.")
     describe(sourceFamily, "Choose the monospaced font for the Source view.")
     describe(sourceSize, "Set the Source view's font size in points, from 8 to 48.")
     describe(
@@ -284,7 +286,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
       [NSTextField(labelWithString: "Default view:"), modeControl],
     ])
     let textGrid = NSGridView(views: [
-      [NSTextField(labelWithString: "Writing text size:"), writingSize],
+      [NSTextField(labelWithString: "Writing zoom:"), writingSize],
       [NSTextField(labelWithString: "Text width:"), textWidth],
       [NSTextField(labelWithString: "Source font:"), sourceFamily],
       [NSTextField(labelWithString: "Source font size:"), sizeControl],

@@ -29,13 +29,13 @@ Plainst formats paragraphs, headings, bold, italic, inline code and code blocks,
 
 - Native document windows and tabs, autosave, versions, Revert, Duplicate, Rename, and Move.
 - Format commands that write plain Typst: Bold (⌘B), Italic (⌘I), Code, Headings (⌥⌘1–3), Bulleted and Numbered Lists (⇧⌘8, ⇧⌘7), Equations (⌥⌘E, ⇧⌥⌘E).
-- Document Font and Justify Paragraphs in the Format menu write Typst `#set` rules, and the Writing view follows the document's font, size, and justification.
+- Document Style in the Format menu sets the document's font, size, and justification by writing Typst `#set` rules, and the Writing view follows them.
 - Return continues a list and ends it on an empty item. Tab and Shift-Tab indent lines and nest list items by the tab width, with optional indentation guides.
 - An outline sidebar (⌃⌘S) of the document's headings that follows the cursor, and Go to Heading (⌃6).
 - Completions from Typst's own IDE engine for symbols, math functions, code, and label references after `@` (⌥⎋ to ask), with snippet placeholders you can Tab through.
 - Automatic pairs for dollar signs, brackets, backticks, and quotes in code; typing `*` or `_` over a selection wraps it. The bracket beside the cursor and its partner are highlighted.
 - A symbols inspector (⌥⌘T) to search and insert Typst symbols and common math structures.
-- Settings for the default view, Writing text size, text width, Source font, tab width, new document line endings, and each kind of typing assistance.
+- Settings for the default view, Writing zoom, text width, Source font, tab width, new document line endings, and each kind of typing assistance.
 - Live Typst diagnostics with underlines, messages at the ends of their lines, and a status bar menu, plus word and page counts.
 - Find and replace, spelling, zoom, light and dark appearances, and optional Apple Writing Tools that are off by default.
 - Opening and saving an unedited file keeps it byte-for-byte identical, including line endings and byte order marks.

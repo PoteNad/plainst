@@ -319,37 +319,29 @@ enum AppChecks {
               }
               pass("double-clicking the preview's divider fits it to the page")
 
-              // Each time the preview opens, the window makes room for the text and a full page.
+              // Opening the preview or a sidebar shares the window instead of resizing it.
               let previewPane = editor.previewPane
-              let needed = 480 + previewPane.fittingWidth
-              for round in 1...2 {
-                editor.togglePreview(nil)
-                editor.window?.setContentSize(NSSize(width: 900, height: 700))
-                editor.togglePreview(nil)
-                RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.3))
-                let content = editor.window?.contentLayoutRect.width ?? 0
-                let previewWidth = previewPane.view.frame.width
-                guard editor.previewVisible, content >= min(needed, editor.window?.screen?.visibleFrame.width ?? needed) - 2,
-                  abs(previewWidth - previewPane.fittingWidth) <= 2 || content < needed
-                else {
-                  fail("showing the preview (time \(round)) left the window \(content) wide with a \(previewWidth) preview; it needs \(needed)")
-                }
-              }
-              // Opening a sidebar beside the preview makes room too, keeping the page full size.
+              editor.togglePreview(nil)
               editor.window?.setContentSize(NSSize(width: 1200, height: 700))
-              RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.3))
+              RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.4))
+              let before = editor.window?.contentLayoutRect.width ?? 0
+              editor.togglePreview(nil)
+              RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.5))
+              let textWidth = editor.typst.scrollView.frame.width
+              guard editor.previewVisible, editor.window?.contentLayoutRect.width == before,
+                previewPane.view.frame.width >= 260, textWidth >= 480
+              else {
+                fail("showing the preview should split \(before) points, not resize the window: text \(textWidth), preview \(previewPane.view.frame.width), window \(editor.window?.contentLayoutRect.width ?? 0)")
+              }
               editor.toggleSymbols(nil)
               RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.6))
-              let withSymbols = editor.window?.contentLayoutRect.width ?? 0
-              let screenWidth = editor.window?.screen?.visibleFrame.width ?? 0
-              guard editor.symbolsVisible,
-                withSymbols >= needed + 268 - 2 || withSymbols >= screenWidth - 2,
-                abs(previewPane.view.frame.width - previewPane.fittingWidth) <= 2 || withSymbols >= screenWidth - 2
+              guard editor.symbolsVisible, editor.window?.contentLayoutRect.width == before,
+                previewPane.view.frame.width >= 260
               else {
-                fail("opening symbols beside the preview left the window \(withSymbols) wide with a \(previewPane.view.frame.width) preview")
+                fail("opening symbols should share the window, not resize it: \(editor.window?.contentLayoutRect.width ?? 0)")
               }
               editor.toggleSymbols(nil)
-              pass("the preview makes room for a full page every time it opens, and sidebars make room beside it")
+              pass("showing the preview and sidebars shares the window instead of resizing it")
               editor.togglePreview(nil)
         editor.loadText(Guide.text)
         editor.toggleOutline(nil)
@@ -818,7 +810,7 @@ enum AppChecks {
         after(2) { editor.symbols.showCategory(category) }
       }
       if environment["PLAINST_DOCUMENT_FONT"] == "1" {
-        after(1.5) { editor.showDocumentFont(nil) }
+        after(1.5) { editor.showDocumentStyle(nil) }
       }
       if environment["PLAINST_TOGGLE_OUTLINE"] == "1" {
         after(0.2) { editor.toggleOutline(nil) }

@@ -151,6 +151,15 @@ extension TypstEditor {
     refreshDocumentStyle()
   }
 
+  /// Sets the document's font, size, and justification in one undoable step.
+  public func setDocumentStyle(font: String?, size: Double?, justify: Bool) {
+    textView.undoManager?.beginUndoGrouping()
+    setDocumentFont(font, size: size)
+    setJustified(justify)
+    textView.undoManager?.endUndoGrouping()
+    textView.undoManager?.setActionName("Document Style")
+  }
+
   /// Turns justified paragraphs on or off by writing the document's `#set par(...)` rule.
   public func setJustified(_ justify: Bool) {
     guard

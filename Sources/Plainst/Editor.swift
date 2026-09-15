@@ -154,10 +154,10 @@ final class Editor: NSWindowController, NSMenuItemValidation, NSWindowDelegate, 
     guard let window else { return }
     let screen = (NSApp.keyWindow ?? NSApp.mainWindow)?.screen ?? NSScreen.main
     guard let visible = screen?.visibleFrame else { return window.center() }
-    // Windows that open with the preview showing are wide enough for the text and a page.
-    let width = previewVisible ? max(1040, contentWidthWithPreview()) : 1040
+    // Windows that open with the preview showing start wide enough for the text and a page.
+    let width = contentWidth(outline: outlineVisible, preview: previewVisible, symbols: symbolsVisible)
     let size = NSSize(
-      width: min(width, visible.width * (previewVisible ? 0.95 : 0.8)).rounded(),
+      width: min(width, visible.width * (previewVisible ? 0.9 : 0.8)).rounded(),
       height: min(740, visible.height * 0.85).rounded())
     let frame = window.frameRect(forContentRect: NSRect(origin: .zero, size: size))
     window.setFrame(
@@ -349,7 +349,6 @@ final class Editor: NSWindowController, NSMenuItemValidation, NSWindowDelegate, 
     if show {
       sidebarOutlineVersion = typst.outlineVersion
       outlineSidebar.update(headings: typst.headings, caret: textView.selectedRange().location)
-      growWindow(outline: true, preview: previewVisible, symbols: symbolsVisible)
     }
     NSAnimationContext.runAnimationGroup { context in
       context.duration = 0.2
@@ -366,8 +365,7 @@ final class Editor: NSWindowController, NSMenuItemValidation, NSWindowDelegate, 
   @objc func togglePreview(_ sender: Any?) {
     let show = previewItem.isCollapsed
     if show {
-      // Every time the preview opens, make room for a full-size page beside the text.
-      growWindow(outline: outlineVisible, preview: true, symbols: symbolsVisible)
+      // The preview shares the window instead of resizing it, like a sidebar.
       previewItem.isCollapsed = false
       DispatchQueue.main.async { [weak self] in self?.layoutPreview() }
     } else {
@@ -383,39 +381,20 @@ final class Editor: NSWindowController, NSMenuItemValidation, NSWindowDelegate, 
     }
   }
 
-  /// The narrowest the text beside the preview should get.
+  /// The narrowest the text beside the preview should get, before the preview gives way.
   private static let textBesidePreview: CGFloat = 480
-  /// The narrowest the text should get beside sidebars alone.
-  private static let textBesideSidebars: CGFloat = 560
 
   /// The window content width that fits the text with the given panels open, with a full-size
-  /// page in the preview.
+  /// page in the preview. New windows open this wide; panels never resize a window after that.
   private func contentWidth(outline: Bool, preview: Bool, symbols: Bool) -> CGFloat {
-    var width = preview ? Self.textBesidePreview + previewPane.fittingWidth : Self.textBesideSidebars
+    var width = preview ? Self.textBesidePreview + previewPane.fittingWidth : 1040
     if outline { width += max(outlineItem.minimumThickness, outlineItem.viewController.view.frame.width) }
     if symbols { width += max(symbolsItem.minimumThickness, symbolsItem.viewController.view.frame.width) }
     return width.rounded(.up)
   }
 
-  private func contentWidthWithPreview() -> CGFloat {
-    contentWidth(outline: outlineVisible, preview: true, symbols: symbolsVisible)
-  }
-
-  /// Widens the window, within its screen, when it is too narrow for the panels about to show.
-  private func growWindow(outline: Bool, preview: Bool, symbols: Bool) {
-    guard let window, let visible = (window.screen ?? NSScreen.main)?.visibleFrame else { return }
-    let content = window.contentRect(forFrameRect: window.frame)
-    let wanted = min(contentWidth(outline: outline, preview: preview, symbols: symbols), visible.width)
-    guard wanted > content.width + 1 else { return }
-    var frame = window.frameRect(forContentRect: NSRect(origin: content.origin, size: NSSize(width: wanted, height: content.height)))
-    // Grow evenly on both sides, then keep the whole window on screen.
-    frame.origin.x = (window.frame.midX - frame.width / 2).rounded()
-    frame.origin.x = max(visible.minX, min(frame.origin.x, visible.maxX - frame.width))
-    window.setFrame(frame, display: true, animate: false)
-  }
-
-  /// Gives the preview a full-size page when there is room, and otherwise splits the space
-  /// between the text and the preview evenly.
+  /// Gives the preview a full-size page when there is room, and otherwise as much as it can
+  /// have while the text keeps a comfortable width.
   private func layoutPreview() {
     guard previewVisible, let split = window?.contentViewController as? NSSplitViewController,
       let item = split.splitViewItems.firstIndex(of: previewItem), item > 0
@@ -426,8 +405,8 @@ final class Editor: NSWindowController, NSMenuItemValidation, NSWindowDelegate, 
     let start = outlineVisible ? panes[0].frame.maxX : 0
     let end = symbolsVisible ? panes[panes.count - 1].frame.minX : split.splitView.bounds.width
     let space = end - start
-    let previewWidth = space - previewPane.fittingWidth >= Self.textBesidePreview
-      ? previewPane.fittingWidth : (space / 2).rounded()
+    let previewWidth = min(
+      previewPane.fittingWidth, max(previewItem.minimumThickness, (space - Self.textBesidePreview).rounded()))
     split.splitView.setPosition((end - previewWidth).rounded(), ofDividerAt: item - 1)
   }
 
@@ -463,7 +442,6 @@ final class Editor: NSWindowController, NSMenuItemValidation, NSWindowDelegate, 
 
   @objc func toggleSymbols(_ sender: Any?) {
     let show = symbolsItem.isCollapsed
-    if show { growWindow(outline: outlineVisible, preview: previewVisible, symbols: true) }
     NSAnimationContext.runAnimationGroup { context in
       context.duration = 0.2
       symbolsItem.animator().isCollapsed = !show
@@ -576,14 +554,14 @@ final class Editor: NSWindowController, NSMenuItemValidation, NSWindowDelegate, 
   @objc func insertInlineEquation(_ sender: Any?) { typst.insertEquation(block: false) }
   @objc func insertDisplayEquation(_ sender: Any?) { typst.insertEquation(block: true) }
 
-  /// Format ▸ Document Font: chooses the font and size the document sets for its text.
-  @objc func showDocumentFont(_ sender: Any?) {
+  /// Format ▸ Document Style: the font, size, and justification the document sets for itself.
+  @objc func showDocumentStyle(_ sender: Any?) {
     guard let window else { return }
     let style = typst.documentStyle
     let alert = NSAlert()
-    alert.messageText = "Document Font"
+    alert.messageText = "Document Style"
     alert.informativeText =
-      "Choose the font and size for this document's text. Plainst writes them as a #set text rule at the top of the file, so the PDF uses them too."
+      "Choose the font, size, and justification for this document. Plainst writes them as #set rules at the top of the file, so the PDF uses them too."
     alert.addButton(withTitle: "Apply")
     alert.addButton(withTitle: "Cancel")
 
@@ -591,12 +569,14 @@ final class Editor: NSWindowController, NSMenuItemValidation, NSWindowDelegate, 
     family.addItem(withTitle: "Default (\(DocumentStyle.defaultFont))")
     family.menu?.addItem(.separator())
     for name in Engine.fontFamilies { family.addItem(withTitle: name) }
-    if let current = style.font, let item = family.itemArray.first(where: { $0.title.caseInsensitiveCompare(current) == .orderedSame }) {
-      family.select(item)
-    } else if let current = style.font {
-      // A font Typst doesn't have still shows, so applying keeps it.
-      family.addItem(withTitle: current)
-      family.selectItem(withTitle: current)
+    if let current = style.font {
+      if let item = family.itemArray.first(where: { $0.title.caseInsensitiveCompare(current) == .orderedSame }) {
+        family.select(item)
+      } else {
+        // A font Typst doesn't have still shows, so applying keeps it.
+        family.addItem(withTitle: current)
+        family.selectItem(withTitle: current)
+      }
     }
     let number = NumberFormatter()
     number.numberStyle = .decimal
@@ -609,9 +589,12 @@ final class Editor: NSWindowController, NSMenuItemValidation, NSWindowDelegate, 
     size.widthAnchor.constraint(equalToConstant: 64).isActive = true
     let points = NSStackView(views: [size, NSTextField(labelWithString: "pt")])
     points.spacing = 6
+    let justify = NSButton(checkboxWithTitle: "Justify paragraphs", target: nil, action: nil)
+    justify.state = style.justify == true ? .on : .off
     let grid = NSGridView(views: [
       [NSTextField(labelWithString: "Font:"), family],
       [NSTextField(labelWithString: "Size:"), points],
+      [NSGridCell.emptyContentView, justify],
     ])
     grid.rowSpacing = 8
     grid.columnSpacing = 8
@@ -626,13 +609,9 @@ final class Editor: NSWindowController, NSMenuItemValidation, NSWindowDelegate, 
         guard let self, response == .alertFirstButtonReturn else { return }
         let chosen = family.indexOfSelectedItem <= 0 ? nil : family.titleOfSelectedItem
         let points = size.stringValue.isEmpty ? nil : number.number(from: size.stringValue)?.doubleValue
-        self.typst.setDocumentFont(chosen, size: points)
+        self.typst.setDocumentStyle(font: chosen, size: points, justify: justify.state == .on)
       }
     }
-  }
-
-  @objc func toggleJustify(_ sender: Any?) {
-    typst.setJustified(typst.documentStyle.justify != true)
   }
 
   @objc func increaseIndent(_ sender: Any?) { typst.indent(outdent: false) }
@@ -687,8 +666,6 @@ final class Editor: NSWindowController, NSMenuItemValidation, NSWindowDelegate, 
       menuItem.state = mode == .writing ? .on : .off
     case #selector(showSource(_:)):
       menuItem.state = mode == .source ? .on : .off
-    case #selector(toggleJustify(_:)):
-      menuItem.state = typst.documentStyle.justify == true ? .on : .off
     case #selector(toggleStatus(_:)):
       menuItem.state = statusVisible ? .on : .off
     case #selector(toggleSymbols(_:)):
