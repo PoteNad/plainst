@@ -181,12 +181,14 @@ public final class TypstTextView: NSTextView {
 /// Keeps the text column centred at a comfortable reading width.
 public final class TypstScrollView: NSScrollView {
   public internal(set) var columnWidth: CGFloat = 680 { didSet { tile() } }
+  /// The smallest space left on each side of the column.
+  public internal(set) var minimumMargin: CGFloat = 24 { didSet { tile() } }
 
   override public func tile() {
     super.tile()
     guard let text = documentView as? NSTextView else { return }
     let available = contentSize.width
-    let side = max(24, ((available - columnWidth) / 2).rounded(.down))
+    let side = max(minimumMargin, ((available - columnWidth) / 2).rounded(.down))
     if text.textContainerInset.width != side {
       text.textContainerInset = NSSize(width: side, height: 28)
     }

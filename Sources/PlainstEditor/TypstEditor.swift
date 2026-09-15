@@ -24,6 +24,21 @@ extension TypstEditorDelegate {
   public func undoManager(for editor: TypstEditor) -> UndoManager? { nil }
 }
 
+/// How wide the text column is. Page matches the typeset page's text width in the Writing view
+/// and about 92 characters in the Source view.
+public enum TextWidth: String, CaseIterable, Sendable {
+  case narrow, page, wide, window
+
+  public var title: String {
+    switch self {
+    case .narrow: "Narrow"
+    case .page: "Page"
+    case .wide: "Wide"
+    case .window: "Full Window"
+    }
+  }
+}
+
 /// Options an app chooses for a ``TypstEditor``.
 public struct TypstEditorConfiguration: Equatable, Sendable {
   /// How large Writing text appears at 100% zoom, relative to Typst's proportions.
@@ -44,12 +59,13 @@ public struct TypstEditorConfiguration: Equatable, Sendable {
   public var tabWidth: Int
   /// Draw a faint line at each indentation level of indented lines.
   public var showsIndentGuides: Bool
+  public var textWidth: TextWidth
 
   public init(
     writingSize: CGFloat = 1, sourceFontName: String = "", sourceFontSize: CGFloat = 13,
     completions: Bool = true, autoPair: Bool = true, equationPreviews: Bool = true,
     checkSpelling: Bool = false, writingTools: Bool = false, tabWidth: Int = 4,
-    showsIndentGuides: Bool = true
+    showsIndentGuides: Bool = true, textWidth: TextWidth = .page
   ) {
     self.writingSize = writingSize
     self.sourceFontName = sourceFontName
@@ -61,6 +77,7 @@ public struct TypstEditorConfiguration: Equatable, Sendable {
     self.writingTools = writingTools
     self.tabWidth = max(1, tabWidth)
     self.showsIndentGuides = showsIndentGuides
+    self.textWidth = textWidth
   }
 }
 
@@ -546,9 +563,17 @@ public final class TypstEditor: NSObject, NSTextViewDelegate, @preconcurrency NS
   func restyleEverything() {
     attributeCache.removeAll()
     textView.typingAttributes = plainAttributes()
-    scrollView.columnWidth = mode == .writing
-      ? (453.5 / Engine.typstTextSize * bodySize).rounded()
-      : (sourceSize * 0.61 * 92).rounded()
+    // The Writing view's page width is the text width of Typst's default A4 page, at this scale.
+    let pageWidth: CGFloat = mode == .writing ? 453.5 / Engine.typstTextSize * bodySize : sourceSize * 0.61 * 92
+    switch configuration.textWidth {
+    case .narrow: scrollView.columnWidth = (pageWidth * (mode == .writing ? 0.75 : 72 / 92)).rounded()
+    case .page: scrollView.columnWidth = pageWidth.rounded()
+    case .wide: scrollView.columnWidth = (pageWidth * (mode == .writing ? 4 / 3 : 120 / 92)).rounded()
+    case .window: scrollView.columnWidth = .greatestFiniteMagnitude
+    }
+    // A full-width column keeps a margin in proportion to the text.
+    scrollView.minimumMargin = configuration.textWidth == .window
+      ? max(24, ((mode == .writing ? bodySize : sourceSize) * 2).rounded()) : 24
     presentation = Presentation()
     apply(makePresentation(selection: textView.selectedRange()), inEditing: false, extra: nil, everything: true)
     invalidateLayout(NSRange(location: 0, length: storage.length))

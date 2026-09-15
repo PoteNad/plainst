@@ -34,7 +34,7 @@ Plainst formats paragraphs, headings, bold, italic, inline code and code blocks,
 - Completions from Typst's own IDE engine for symbols, math functions, code, and label references after `@` (⌥⎋ to ask), with snippet placeholders you can Tab through.
 - Automatic pairs for dollar signs, brackets, backticks, and quotes in code; typing `*` or `_` over a selection wraps it. The bracket beside the cursor and its partner are highlighted.
 - A symbols inspector (⌥⌘T) to search and insert Typst symbols and common math structures.
-- Settings for the default view, Writing text size, Source font, tab width, new document line endings, and each kind of typing assistance.
+- Settings for the default view, Writing text size, text width, Source font, tab width, new document line endings, and each kind of typing assistance.
 - Live Typst diagnostics with underlines, messages at the ends of their lines, and a status bar menu, plus word and page counts.
 - Find and replace, spelling, zoom, light and dark appearances, and optional Apple Writing Tools that are off by default.
 - Opening and saving an unedited file keeps it byte-for-byte identical, including line endings and byte order marks.

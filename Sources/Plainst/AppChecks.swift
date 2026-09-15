@@ -194,6 +194,27 @@ enum AppChecks {
     guard editor.text == "- a\n- b\nx   " else { fail("Shift-Tab should outdent the item: \(editor.text.debugDescription)") }
     pass("Tab and Shift-Tab indent by the configured width")
 
+    // Text width presets widen the column in order, and Full Window fills the window.
+    func columnWidth(_ width: TextWidth, _ mode: EditorMode) -> CGFloat {
+      editor.setMode(mode)
+      editor.typst.configuration.textWidth = width
+      editor.typst.restyleEverything()
+      editor.typst.scrollView.tile()
+      return editor.container.size.width
+    }
+    editor.window?.setContentSize(NSSize(width: 1800, height: 800))
+    for mode in EditorMode.allCases {
+      let widths = TextWidth.allCases.map { columnWidth($0, mode) }
+      let available = editor.typst.scrollView.contentSize.width
+      guard widths == widths.sorted(), Set(widths).count == 4,
+        widths[3] >= available - editor.typst.scrollView.minimumMargin * 2 - 1
+      else { fail("text widths in \(mode) should grow to fill \(available): \(widths)") }
+    }
+    editor.typst.configuration.textWidth = .page
+    editor.setMode(.writing)
+    editor.typst.restyleEverything()
+    pass("text width presets narrow, match the page, widen, and fill the window")
+
     editor.loadText("= Draft\n\nHello #nothing-here\n")
     after(2) {
       guard editor.diagnostics.contains(where: \.isError), editor.annotations.count == 1 else {
