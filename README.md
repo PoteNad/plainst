@@ -2,6 +2,18 @@
 
 Plainst is a small, native macOS editor for single-file [Typst](https://typst.app) documents of prose and math. It shows headings, emphasis, lists, and rendered equations while you write, and it always saves an ordinary `.typ` file exactly as you typed it. Plainst requires macOS 13 or newer and works entirely offline.
 
+## Install
+
+Download Plainst from [GitHub Releases](https://github.com/PoteNad/plainst/releases), or install it with Homebrew:
+
+```sh
+brew install --cask PoteNad/tap/plainst
+```
+
+Homebrew includes Plainst in its normal `brew upgrade` cycle. To update only Plainst, run `brew upgrade --cask plainst`.
+
+The Homebrew cask verifies the app bundle and removes its quarantine attribute so Plainst can open normally. Direct downloads are not Apple-notarized, so macOS may require **Open Anyway** in **System Settings → Privacy & Security** on first launch.
+
 ## How it works
 
 - **Writing** (⌘1) shows the document formatted with Typst's own fonts and equations rendered by the Typst compiler. Markup such as `*` or `=` is hidden until the cursor reaches it, and clicking an equation reveals its source with a live preview underneath.

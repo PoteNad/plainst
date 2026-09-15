@@ -8,7 +8,6 @@ if [ "$#" -ne 1 ]; then
   exit 64
 fi
 VERSION="$1"
-. scripts/toolchain.sh
 DIST="$PWD/dist"
 STAGE="$DIST/staging"
 APP="$STAGE/Plainst.app"
@@ -17,30 +16,38 @@ DISK_IMAGE_NAME="Plainst-$VERSION-macOS.dmg"
 ARCHIVE="$DIST/$ARCHIVE_NAME"
 DISK_IMAGE="$DIST/$DISK_IMAGE_NAME"
 
+# Checks the SDK and sets PLAINST_SDK_VERSION for Package.swift.
+. scripts/toolchain.sh
+
 rm -rf "$STAGE"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
+# Build the Typst engine and the app for each architecture, then combine them.
 for ARCH in arm64 x86_64; do
   case "$ARCH" in
-  arm64) TARGET=aarch64-apple-darwin ;;
-  x86_64) TARGET=x86_64-apple-darwin ;;
+    arm64) TRIPLE=aarch64-apple-darwin ;;
+    x86_64) TRIPLE=x86_64-apple-darwin ;;
   esac
-  rustup target add "$TARGET" >/dev/null
+  if command -v rustup >/dev/null 2>&1; then
+    rustup target add "$TRIPLE"
+  fi
   MACOSX_DEPLOYMENT_TARGET=13.0 cargo build --release --locked \
-    --manifest-path engine/Cargo.toml --target "$TARGET"
-  PLAINST_ENGINE_LIB="$PWD/engine/target/$TARGET/release" \
-    swift build -c release --arch "$ARCH" --scratch-path ".build-release-$ARCH"
+    --manifest-path engine/Cargo.toml --target "$TRIPLE"
+  PLAINST_ENGINE_LIB="$PWD/engine/target/$TRIPLE/release" \
+    swift build -c release --arch "$ARCH" --scratch-path ".build-release-$ARCH" --product Plainst
 done
 lipo -create \
   .build-release-arm64/release/Plainst \
   .build-release-x86_64/release/Plainst \
   -output "$APP/Contents/MacOS/Plainst"
-BUILT_SDK="$(xcrun vtool -show-build "$APP/Contents/MacOS/Plainst" | awk '$1 == "sdk" { print $2; exit }')"
-BUILT_SDK_MAJOR="${BUILT_SDK%%.*}"
-if [ "$BUILT_SDK_MAJOR" -lt 26 ]; then
-  printf 'The release executable was linked against macOS SDK %s.\n' "$BUILT_SDK" >&2
-  exit 1
-fi
+for ARCH in arm64 x86_64; do
+  BUILT_SDK="$(xcrun vtool -arch "$ARCH" -show-build "$APP/Contents/MacOS/Plainst" | awk '$1 == "sdk" { print $2; exit }')"
+  if [ "${BUILT_SDK%%.*}" -lt 26 ]; then
+    printf 'The %s executable was linked against macOS SDK %s.\n' "$ARCH" "$BUILT_SDK" >&2
+    exit 1
+  fi
+done
+printf 'Linked against macOS SDK %s\n' "$PLAINST_SDK_VERSION"
 
 cp Assets/Plainst.icns "$APP/Contents/Resources/Plainst.icns"
 cp LICENSE THIRD_PARTY_NOTICES.md "$APP/Contents/Resources/"
@@ -54,8 +61,8 @@ codesign --verify --deep --strict --verbose=2 "$APP"
 rm -f "$ARCHIVE" "$DISK_IMAGE" "$DIST/Plainst-macOS.zip" "$DIST/Plainst-macOS.dmg"
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$ARCHIVE"
 cp "$ARCHIVE" "$DIST/Plainst-macOS.zip"
-(cd "$DIST" && shasum -a 256 "$ARCHIVE_NAME" >"$ARCHIVE_NAME.sha256")
+(cd "$DIST" && shasum -a 256 "$ARCHIVE_NAME" > "$ARCHIVE_NAME.sha256")
 hdiutil create -volname Plainst -srcfolder "$STAGE" -ov -format UDZO "$DISK_IMAGE"
 cp "$DISK_IMAGE" "$DIST/Plainst-macOS.dmg"
-(cd "$DIST" && shasum -a 256 "$DISK_IMAGE_NAME" >"$DISK_IMAGE_NAME.sha256")
-printf 'Created %s and %s with macOS SDK %s\n' "$ARCHIVE" "$DISK_IMAGE" "$BUILT_SDK"
+(cd "$DIST" && shasum -a 256 "$DISK_IMAGE_NAME" > "$DISK_IMAGE_NAME.sha256")
+printf 'Created %s and %s\n' "$ARCHIVE" "$DISK_IMAGE"

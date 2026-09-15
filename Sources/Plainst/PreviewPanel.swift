@@ -92,6 +92,11 @@ final class PreviewViewController: NSViewController {
   }
 
   var hasDocument: Bool { !pages.isEmpty }
+
+  /// The width that shows the widest page at its largest size with the usual margins.
+  var fittingWidth: CGFloat {
+    ((pages.map(\.size.width).max() ?? 595.28) * Self.maximumScale + Self.margin * 2).rounded(.up)
+  }
   var renderedPageCount: Int { shown.compactMap { $0 }.count }
 
   override func viewDidLayout() {
@@ -299,6 +304,29 @@ private final class DividerHandle: NSView {
 final class EditorSplitViewController: NSSplitViewController {
   /// The item whose leading divider gets the grip.
   weak var previewItem: NSSplitViewItem?
+  /// Runs when the preview's divider is double-clicked.
+  var onPreviewDividerDoubleClick: (() -> Void)?
+
+  override init(nibName nibNameOrNil: NSNib.Name?, bundle nibBundleOrNil: Bundle?) {
+    super.init(nibName: nibNameOrNil, bundle: nibBundleOrNil)
+    let splitView = DividerSplitView()
+    splitView.isVertical = true
+    splitView.dividerStyle = .thin
+    splitView.onDoubleClick = { [weak self] index in
+      guard let self, self.isPreviewDivider(index) else { return false }
+      self.onPreviewDividerDoubleClick?()
+      return true
+    }
+    self.splitView = splitView
+  }
+
+  required init?(coder: NSCoder) { fatalError() }
+
+  fileprivate func isPreviewDivider(_ index: Int) -> Bool {
+    guard let previewItem else { return false }
+    return splitViewItems.firstIndex(of: previewItem) == index + 1
+  }
+
 
   override func splitView(
     _ splitView: NSSplitView, effectiveRect proposedEffectiveRect: NSRect, forDrawnRect drawnRect: NSRect,
@@ -306,10 +334,38 @@ final class EditorSplitViewController: NSSplitViewController {
   ) -> NSRect {
     let rect = super.splitView(
       splitView, effectiveRect: proposedEffectiveRect, forDrawnRect: drawnRect, ofDividerAt: dividerIndex)
-    if let previewItem, splitViewItems.firstIndex(of: previewItem) == dividerIndex + 1 {
+    if isPreviewDivider(dividerIndex) {
       // Cover the grip drawn just inside the preview.
       return rect.union(NSRect(x: drawnRect.minX - 5, y: drawnRect.minY, width: drawnRect.width + 14, height: drawnRect.height))
     }
     return rect.union(drawnRect.insetBy(dx: -4, dy: 0))
+  }
+}
+
+/// A split view that reports double-clicks on its dividers.
+private final class DividerSplitView: NSSplitView {
+  /// Returns true when the double-click on the divider at an index was handled.
+  var onDoubleClick: ((Int) -> Bool)?
+
+  override func mouseDown(with event: NSEvent) {
+    if event.clickCount == 2, let index = divider(at: convert(event.locationInWindow, from: nil)),
+      onDoubleClick?(index) == true
+    {
+      return
+    }
+    super.mouseDown(with: event)
+  }
+
+  private func divider(at point: NSPoint) -> Int? {
+    let panes = arrangedSubviews
+    guard panes.count > 1 else { return nil }
+    for index in 0..<(panes.count - 1) {
+      let drawn = NSRect(
+        x: panes[index].frame.maxX, y: bounds.minY,
+        width: max(dividerThickness, panes[index + 1].frame.minX - panes[index].frame.maxX), height: bounds.height)
+      let effective = delegate?.splitView?(self, effectiveRect: drawn, forDrawnRect: drawn, ofDividerAt: index) ?? drawn
+      if effective.insetBy(dx: -1, dy: 0).contains(point) { return index }
+    }
+    return nil
   }
 }

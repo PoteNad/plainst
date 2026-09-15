@@ -217,8 +217,45 @@ enum AppChecks {
             guard NSLocationInRange(editor.textView.selectedRange().location, word) else {
               fail("clicking the preview should find the text: cursor at \(editor.textView.selectedRange()), expected \(word)")
             }
-            editor.togglePreview(nil)
             pass("preview updates re-render only changed pages, and clicking a page finds its source")
+
+            // Double-clicking the preview's divider sizes the preview to its pages.
+            guard let window = editor.window, let split = window.contentViewController as? EditorSplitViewController,
+              let item = split.previewItem, let index = split.splitViewItems.firstIndex(of: item)
+            else { fail("no split view") }
+            window.setContentSize(NSSize(width: 1500, height: 800))
+            split.splitView.setPosition(400, ofDividerAt: index - 1)
+            split.splitView.layoutSubtreeIfNeeded()
+            let before = item.viewController.view.frame.width
+            // A real double-click on the divider, delivered to the split view.
+            let divider = split.splitView.arrangedSubviews[index].frame.minX - split.splitView.dividerThickness / 2
+            let location = split.splitView.convert(NSPoint(x: divider, y: split.splitView.bounds.midY), to: nil)
+            let time = ProcessInfo.processInfo.systemUptime
+            for clicks in 1...2 {
+              for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                guard let event = NSEvent.mouseEvent(
+                  with: type, location: location, modifierFlags: [], timestamp: time + Double(clicks) * 0.05,
+                  windowNumber: window.windowNumber, context: nil, eventNumber: 20 + clicks, clickCount: clicks,
+                  pressure: type == .leftMouseDown ? 1 : 0)
+                else { continue }
+                if type == .leftMouseDown {
+                  if let up = NSEvent.mouseEvent(
+                    with: .leftMouseUp, location: location, modifierFlags: [], timestamp: time + Double(clicks) * 0.05 + 0.01,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: 20 + clicks, clickCount: clicks, pressure: 0)
+                  {
+                    NSApp.postEvent(up, atStart: false)
+                  }
+                  split.splitView.mouseDown(with: event)
+                }
+              }
+            }
+            after(0.6) {
+              let width = item.viewController.view.frame.width
+              guard before > pane.fittingWidth + 100, abs(width - pane.fittingWidth) <= 2, editor.previewVisible else {
+                fail("double-clicking the divider should fit the preview to \(pane.fittingWidth), not \(before) → \(width)")
+              }
+              editor.togglePreview(nil)
+              pass("double-clicking the preview's divider fits it to the page")
         editor.loadText(Guide.text)
         editor.toggleOutline(nil)
         after(0.5) {
@@ -237,6 +274,7 @@ enum AppChecks {
           pass("the outline sidebar lists headings and follows the cursor")
           finish()
         }
+            }
           }
         }
       }

@@ -91,6 +91,7 @@ final class Editor: NSWindowController, NSMenuItemValidation, NSWindowDelegate, 
     previewPane.key = engineKey
     previewItem = NSSplitViewItem(viewController: previewPane)
     split.previewItem = previewItem
+    split.onPreviewDividerDoubleClick = { [weak self] in self?.fitPreviewToPage() }
     previewItem.canCollapse = true
     previewItem.minimumThickness = 260
     previewItem.holdingPriority = .init(rawValue: 255)
@@ -377,6 +378,25 @@ final class Editor: NSWindowController, NSMenuItemValidation, NSWindowDelegate, 
   }
 
   var symbolsVisible: Bool { !symbolsItem.isCollapsed }
+
+  /// Sizes the preview to show its pages at full size with the least margin, keeping room
+  /// for the text beside it.
+  func fitPreviewToPage() {
+    guard previewVisible, let split = window?.contentViewController as? NSSplitViewController,
+      let item = split.splitViewItems.firstIndex(of: previewItem), item > 0
+    else { return }
+    let panes = split.splitView.arrangedSubviews
+    guard panes.count == split.splitViewItems.count else { return }
+    let start = outlineVisible ? panes[0].frame.maxX : 0
+    let end = panes[item].frame.maxX
+    let position = max(start + 320, end - previewPane.fittingWidth)
+    NSAnimationContext.runAnimationGroup { context in
+      context.duration = 0.2
+      context.allowsImplicitAnimation = true
+      split.splitView.setPosition(position.rounded(), ofDividerAt: item - 1)
+      split.splitView.layoutSubtreeIfNeeded()
+    }
+  }
 
   /// Automated checks must leave the user's saved window and sidebar state alone.
   private var isAutomatedCheck: Bool {
