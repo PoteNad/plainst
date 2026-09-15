@@ -46,8 +46,8 @@ final class Editor: NSWindowController, NSMenuItemValidation, NSWindowDelegate, 
     window.minSize = NSSize(width: 460, height: 300)
     window.tabbingIdentifier = "io.github.PoteNad.plainst.document"
     window.tabbingMode = .preferred
-    window.center()
-    window.setFrameAutosaveName("PlainstDocumentWindow")
+    // Every window opens centred at a comfortable size rather than cascading from a saved spot.
+    shouldCascadeWindows = false
     // A native toolbar with the view switcher at the trailing edge, like Pages' inspector buttons.
     let toolbar = NSToolbar(identifier: "PlainstDocumentToolbar")
     toolbar.delegate = self
@@ -105,10 +105,7 @@ final class Editor: NSWindowController, NSMenuItemValidation, NSWindowDelegate, 
     split.addSplitViewItem(symbolsItem)
     if !isAutomatedCheck { split.splitView.autosaveName = "PlainstEditorSplit" }
     window.contentViewController = split
-    if !window.setFrameUsingName("PlainstDocumentWindow") {
-      window.setContentSize(NSSize(width: 920, height: 720))
-      window.center()
-    }
+    placeWindow()
     let scroll = typst.scrollView
     root.addSubview(scroll)
     root.addSubview(statusBar)
@@ -148,6 +145,25 @@ final class Editor: NSWindowController, NSMenuItemValidation, NSWindowDelegate, 
   }
 
   required init?(coder: NSCoder) { fatalError() }
+
+  /// Centres the window on the active screen, sized to fit comfortably within it.
+  private func placeWindow() {
+    guard let window else { return }
+    let screen = (NSApp.keyWindow ?? NSApp.mainWindow)?.screen ?? NSScreen.main
+    guard let visible = screen?.visibleFrame else { return window.center() }
+    let size = NSSize(
+      width: min(1040, visible.width * 0.8).rounded(), height: min(740, visible.height * 0.85).rounded())
+    let frame = window.frameRect(forContentRect: NSRect(origin: .zero, size: size))
+    window.setFrame(
+      NSRect(
+        x: (visible.midX - frame.width / 2).rounded(), y: (visible.midY - frame.height / 2).rounded(),
+        width: frame.width, height: frame.height), display: false)
+  }
+
+  // Reopened documents also come back centred, not wherever their window was last left.
+  func window(_ window: NSWindow, didDecodeRestorableState state: NSCoder) {
+    placeWindow()
+  }
 
   func loadText(_ text: String) { typst.loadText(text) }
 

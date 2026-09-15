@@ -66,4 +66,52 @@ extension TypstEditor {
     }
     highlightedBrackets = pair
   }
+
+  // MARK: Indentation guides
+
+  /// Draws a faint line at the start of each indentation level on indented lines.
+  func drawIndentGuides(forCharacters characters: NSRange, at origin: NSPoint) {
+    guard configuration.showsIndentGuides, storage.length > 0 else { return }
+    let text = storage.mutableString
+    let width = configuration.tabWidth
+    let end = min(NSMaxRange(characters), text.length)
+    var location = text.lineRange(for: NSRange(location: min(characters.location, text.length), length: 0)).location
+    NSColor.separatorColor.setFill()
+    while location < end {
+      let line = text.lineRange(for: NSRange(location: location, length: 0))
+      defer { location = NSMaxRange(line) }
+      // The leading spaces and tabs, and the column where each character starts.
+      var starts: [(index: Int, column: Int)] = []
+      var column = 0
+      var index = line.location
+      while index < NSMaxRange(line) {
+        let character = text.character(at: index)
+        guard character == 0x20 || character == 0x09 else { break }
+        starts.append((index, column))
+        column = character == 0x09 ? (column / width + 1) * width : column + 1
+        index += 1
+      }
+      // Only lines with content after the indentation get guides.
+      guard index < NSMaxRange(line), ![0x0A, 0x0D].contains(text.character(at: index)) else { continue }
+      let levels = column / width
+      guard levels > 0, !(concealing && mathBlock(containing: line.location) != nil) else { continue }
+      let firstGlyph = layout.glyphIndexForCharacter(at: line.location)
+      let lastGlyph = layout.glyphIndexForCharacter(at: max(line.location, NSMaxRange(line) - 1))
+      guard lastGlyph < layout.numberOfGlyphs else { continue }
+      let top = layout.lineFragmentUsedRect(forGlyphAt: firstGlyph, effectiveRange: nil).minY
+      let bottom = layout.lineFragmentUsedRect(forGlyphAt: lastGlyph, effectiveRange: nil).maxY
+      let contentX = layout.location(forGlyphAt: layout.glyphIndexForCharacter(at: index)).x
+      for level in 0..<levels {
+        let target = level * width
+        guard let start = starts.last(where: { $0.column <= target }),
+          !(concealing && presentation.hidden.contains(start.index))
+        else { continue }
+        let glyph = layout.glyphIndexForCharacter(at: start.index)
+        let x = layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil).minX
+          + layout.location(forGlyphAt: glyph).x
+        guard x < contentX + layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil).minX - 1 else { continue }
+        NSRect(x: (origin.x + x).rounded() + 0.5, y: origin.y + top, width: 1, height: bottom - top).fill()
+      }
+    }
+  }
 }

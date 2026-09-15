@@ -206,24 +206,74 @@ public enum Formatting {
       selection: NSRange(location: selection.location + (insertion as NSString).length, length: 0))
   }
 
-  /// Indents or outdents list items by two spaces.
-  public static func indentList(text: NSString, selection: NSRange, outdent: Bool) -> TextEdit? {
+  /// How many columns a run of spaces and tabs spans, with tab stops every `width` columns.
+  public static func columns(of indent: some StringProtocol, width: Int) -> Int {
+    let width = max(1, width)
+    return indent.reduce(0) { column, character in
+      character == "\t" ? (column / width + 1) * width : column + 1
+    }
+  }
+
+  /// Removes up to one indentation level of `width` columns from the start of a line.
+  private static func outdented(_ line: String, width: Int) -> String {
+    var removed = 0
+    var index = line.startIndex
+    while index < line.endIndex, removed < width, line[index] == " " || line[index] == "\t" {
+      removed = line[index] == "\t" ? (removed / width + 1) * width : removed + 1
+      index = line.index(after: index)
+    }
+    return String(line[index...])
+  }
+
+  /// Indents or outdents list items by `width` spaces, or returns nil when no line is a list item.
+  public static func indentList(text: NSString, selection: NSRange, outdent: Bool, width: Int = 2)
+    -> TextEdit?
+  {
     let range = lines(text, selection)
     let block = text.substring(with: range)
     let items = block.split(separator: "\n", omittingEmptySubsequences: false)
     let isList = items.contains { split(String($0)).marker.map { !$0.hasPrefix("=") } ?? false }
     guard isList else { return nil }
+    let width = max(1, width)
     return rewriteLines(text, selection) { lines in
       lines.map { line in
         guard split(line).marker.map({ !$0.hasPrefix("=") }) == true else { return line }
-        if outdent {
-          if line.hasPrefix("  ") { return String(line.dropFirst(2)) }
-          if line.hasPrefix(" ") || line.hasPrefix("\t") { return String(line.dropFirst()) }
-          return line
-        }
-        return "  " + line
+        return outdent ? outdented(line, width: width) : String(repeating: " ", count: width) + line
       }
     }
+  }
+
+  /// Indents or outdents every selected line by one level of `width` spaces. Blank lines in a
+  /// multi-line selection are left alone. Returns nil when outdenting changes nothing.
+  public static func indentLines(text: NSString, selection: NSRange, outdent: Bool, width: Int)
+    -> TextEdit?
+  {
+    let width = max(1, width)
+    var changed = false
+    let edit = rewriteLines(text, selection) { lines in
+      lines.map { line in
+        if outdent {
+          let result = outdented(line, width: width)
+          changed = changed || result != line
+          return result
+        }
+        if lines.count > 1 && line.trimmingCharacters(in: .whitespaces).isEmpty { return line }
+        changed = true
+        return String(repeating: " ", count: width) + line
+      }
+    }
+    return changed ? edit : nil
+  }
+
+  /// Replaces the selection with spaces that reach the next indentation stop.
+  public static func softTab(text: NSString, selection: NSRange, width: Int) -> TextEdit {
+    let width = max(1, width)
+    let lineStart = text.lineRange(for: NSRange(location: selection.location, length: 0)).location
+    let before = text.substring(with: NSRange(location: lineStart, length: selection.location - lineStart))
+    let spaces = width - columns(of: before, width: width) % width
+    return TextEdit(
+      range: selection, replacement: String(repeating: " ", count: spaces),
+      selection: NSRange(location: selection.location + spaces, length: 0))
   }
 
   /// Counts words the way a reader would, ignoring markup punctuation.

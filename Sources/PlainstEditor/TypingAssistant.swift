@@ -138,16 +138,29 @@ final class TypingAssistant {
     }
   }
 
-  /// Adjusts snippet placeholders after an edit.
-  func textStorageDidEdit(range: NSRange, delta: Int) {
+  /// Moves snippet placeholders for an edit that replaces `range` with `length` characters.
+  ///
+  /// This uses the exact change from the text view: the text storage's edited range can be wider
+  /// when attributes are fixed up in the same edit.
+  func textWillChange(range: NSRange, replacementLength length: Int) {
     guard !placeholders.isEmpty else { return }
-    let oldEnd = NSMaxRange(range) - delta
-    placeholders = placeholders.compactMap { placeholder in
+    let delta = length - range.length
+    placeholders = placeholders.map { placeholder in
       var placeholder = placeholder
-      if placeholder.location >= oldEnd {
-        placeholder.location += delta
-      } else if range.location >= placeholder.location && range.location <= NSMaxRange(placeholder) {
+      if range.location >= placeholder.location && NSMaxRange(range) <= NSMaxRange(placeholder) {
+        // Typing inside a placeholder, or at its edge, grows or shrinks it.
         placeholder.length = max(0, placeholder.length + delta)
+      } else if NSMaxRange(range) <= placeholder.location {
+        placeholder.location += delta
+      } else if NSMaxRange(placeholder) <= range.location {
+        // Edits after a placeholder leave it where it is.
+      } else if range.location <= placeholder.location {
+        // The edit covers the placeholder's start: what remains follows the new text.
+        let remaining = max(0, NSMaxRange(placeholder) - NSMaxRange(range))
+        placeholder = NSRange(location: range.location + length, length: remaining)
+      } else {
+        // The edit covers the placeholder's end: its start stays.
+        placeholder.length = range.location - placeholder.location
       }
       return placeholder
     }

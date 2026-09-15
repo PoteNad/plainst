@@ -19,6 +19,8 @@ enum PreferenceKey {
   static let sourceFontName = "sourceFontName"
   static let sourceFontSize = "sourceFontSize"
   static let lineEnding = "lineEnding"
+  static let tabWidth = "tabWidth"
+  static let indentGuides = "indentGuides"
 }
 
 enum AppAppearance: String, CaseIterable {
@@ -68,6 +70,7 @@ enum AppPreferences {
     PreferenceKey.checkSpelling, PreferenceKey.writingTools, PreferenceKey.completions,
     PreferenceKey.autoPair, PreferenceKey.equationPreviews, PreferenceKey.writingSize,
     PreferenceKey.sourceFontName, PreferenceKey.sourceFontSize, PreferenceKey.lineEnding,
+    PreferenceKey.tabWidth, PreferenceKey.indentGuides,
   ]
 
   static func registerDefaults() {
@@ -84,6 +87,8 @@ enum AppPreferences {
       PreferenceKey.sourceFontName: "",
       PreferenceKey.sourceFontSize: 13.0,
       PreferenceKey.lineEnding: LineEnding.lf.rawValue,
+      PreferenceKey.tabWidth: 4,
+      PreferenceKey.indentGuides: true,
     ])
   }
 
@@ -130,7 +135,14 @@ enum AppPreferences {
       writingSize: writingSize, sourceFontName: sourceFontName, sourceFontSize: sourceFontSize,
       completions: completions, autoPair: autoPair, equationPreviews: equationPreviews,
       checkSpelling: UserDefaults.standard.bool(forKey: PreferenceKey.checkSpelling),
-      writingTools: writingToolsEnabled)
+      writingTools: writingToolsEnabled, tabWidth: tabWidth,
+      showsIndentGuides: UserDefaults.standard.bool(forKey: PreferenceKey.indentGuides))
+  }
+
+  /// Columns per indentation level: 2, 4, or 8.
+  static var tabWidth: Int {
+    let value = UserDefaults.standard.integer(forKey: PreferenceKey.tabWidth)
+    return [2, 4, 8].contains(value) ? value : 4
   }
 
   static var lineEnding: LineEnding {
@@ -149,6 +161,9 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
   private let sourceSize = NSTextField()
   private let sourceStepper = NSStepper()
   private let lineEnding = NSPopUpButton()
+  private let tabWidth = NSPopUpButton()
+  private let indentGuides = NSButton(
+    checkboxWithTitle: "Show indentation guides", target: nil, action: nil)
   private let statusBar = NSButton(checkboxWithTitle: "Show status bar", target: nil, action: nil)
   private let spelling = NSButton(
     checkboxWithTitle: "Check spelling while typing", target: nil, action: nil)
@@ -187,6 +202,10 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
       lineEnding.addItem(withTitle: value == .lf ? "LF (macOS and Linux)" : "CRLF (Windows)")
       lineEnding.lastItem?.representedObject = value.rawValue
     }
+    for width in [2, 4, 8] {
+      tabWidth.addItem(withTitle: "\(width) spaces")
+      tabWidth.lastItem?.tag = width
+    }
     number.numberStyle = .decimal
     number.maximumFractionDigits = 1
     number.usesGroupingSeparator = false
@@ -197,13 +216,13 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
     sourceStepper.increment = 1
     sourceStepper.valueWraps = false
 
-    for control in [appearanceControl, modeControl, writingSize, sourceFamily, lineEnding, sourceStepper]
+    for control in [appearanceControl, modeControl, writingSize, sourceFamily, lineEnding, tabWidth, sourceStepper]
       as [NSControl]
     {
       control.target = self
       control.action = #selector(changeOption)
     }
-    for button in [statusBar, spelling, completions, autoPair, previews, writingTools] {
+    for button in [statusBar, spelling, completions, autoPair, previews, indentGuides, writingTools] {
       button.target = self
       button.action = #selector(changeOption)
     }
@@ -221,6 +240,10 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
     describe(sourceSize, "Set the Source view's font size in points, from 8 to 48.")
     describe(
       lineEnding, "Set the line endings for new documents. Existing documents keep their own.")
+    describe(
+      tabWidth,
+      "Set how far Tab indents lines and nests list items, and how wide tab characters appear. Tab inserts spaces.")
+    describe(indentGuides, "Draw a faint line at each level of indentation.")
     describe(statusBar, "Show the cursor position, problems, word count, page count, and zoom level.")
     describe(spelling, "Underline possible spelling mistakes while you type.")
     describe(
@@ -249,6 +272,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
       [NSTextField(labelWithString: "Writing text size:"), writingSize],
       [NSTextField(labelWithString: "Source font:"), sourceFamily],
       [NSTextField(labelWithString: "Source font size:"), sizeControl],
+      [NSTextField(labelWithString: "Tab width:"), tabWidth],
       [NSTextField(labelWithString: "New document line endings:"), lineEnding],
     ])
     for grid in [generalGrid, textGrid] {
@@ -259,7 +283,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
       grid.rowAlignment = .firstBaseline
     }
 
-    let options = NSStackView(views: [statusBar, spelling, completions, autoPair, previews, writingTools])
+    let options = NSStackView(views: [statusBar, spelling, completions, autoPair, previews, indentGuides, writingTools])
     options.orientation = .vertical
     options.alignment = .leading
     options.spacing = 6
@@ -321,6 +345,8 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
     sourceSize.stringValue = number.string(from: NSNumber(value: Double(AppPreferences.sourceFontSize))) ?? "13"
     sourceStepper.doubleValue = Double(AppPreferences.sourceFontSize)
     lineEnding.selectItem(at: AppPreferences.lineEnding == .crlf ? 1 : 0)
+    tabWidth.selectItem(withTag: AppPreferences.tabWidth)
+    indentGuides.state = defaults.bool(forKey: PreferenceKey.indentGuides) ? .on : .off
     statusBar.state = defaults.bool(forKey: PreferenceKey.status) ? .on : .off
     spelling.state = defaults.bool(forKey: PreferenceKey.checkSpelling) ? .on : .off
     completions.state = AppPreferences.completions ? .on : .off
@@ -356,6 +382,10 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
     if let value = lineEnding.selectedItem?.representedObject as? String {
       defaults.set(value, forKey: PreferenceKey.lineEnding)
     }
+    if let width = tabWidth.selectedItem?.tag, width > 0 {
+      defaults.set(width, forKey: PreferenceKey.tabWidth)
+    }
+    defaults.set(indentGuides.state == .on, forKey: PreferenceKey.indentGuides)
     defaults.set(statusBar.state == .on, forKey: PreferenceKey.status)
     defaults.set(spelling.state == .on, forKey: PreferenceKey.checkSpelling)
     defaults.set(completions.state == .on, forKey: PreferenceKey.completions)

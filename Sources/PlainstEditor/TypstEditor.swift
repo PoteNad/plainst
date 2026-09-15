@@ -40,11 +40,16 @@ public struct TypstEditorConfiguration: Equatable, Sendable {
   public var checkSpelling: Bool
   /// Allow Apple Writing Tools, limited to plain text.
   public var writingTools: Bool
+  /// Columns per indentation level, used by Tab, list nesting, and tab characters.
+  public var tabWidth: Int
+  /// Draw a faint line at each indentation level of indented lines.
+  public var showsIndentGuides: Bool
 
   public init(
     writingSize: CGFloat = 1, sourceFontName: String = "", sourceFontSize: CGFloat = 13,
     completions: Bool = true, autoPair: Bool = true, equationPreviews: Bool = true,
-    checkSpelling: Bool = false, writingTools: Bool = false
+    checkSpelling: Bool = false, writingTools: Bool = false, tabWidth: Int = 4,
+    showsIndentGuides: Bool = true
   ) {
     self.writingSize = writingSize
     self.sourceFontName = sourceFontName
@@ -54,6 +59,8 @@ public struct TypstEditorConfiguration: Equatable, Sendable {
     self.equationPreviews = equationPreviews
     self.checkSpelling = checkSpelling
     self.writingTools = writingTools
+    self.tabWidth = max(1, tabWidth)
+    self.showsIndentGuides = showsIndentGuides
   }
 }
 
@@ -287,7 +294,6 @@ public final class TypstEditor: NSObject, NSTextViewDelegate, @preconcurrency NS
         index.rebuild(textStorage.mutableString)
       } else {
         index.update(textStorage.mutableString, editedRange: editedRange, delta: delta)
-        assistant.textStorageDidEdit(range: editedRange, delta: delta)
       }
       if pendingRestyle != nil {
         // Programmatic edits don't send textDidChange, so make sure deferred styling lands.
@@ -297,6 +303,16 @@ public final class TypstEditor: NSObject, NSTextViewDelegate, @preconcurrency NS
   }
 
   public func undoManager(for view: NSTextView) -> UndoManager? { delegate?.undoManager(for: self) }
+
+  public func textView(
+    _ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?
+  ) -> Bool {
+    if let replacementString {
+      assistant.textWillChange(
+        range: affectedCharRange, replacementLength: (replacementString as NSString).length)
+    }
+    return true
+  }
 
   public func textDidChange(_ notification: Notification) {
     flushPendingRestyle()
@@ -345,22 +361,33 @@ public final class TypstEditor: NSObject, NSTextViewDelegate, @preconcurrency NS
       ($0.kind == .raw || $0.kind == .math) && $0.range.location < selection.location
         && selection.location < NSMaxRange($0.range)
     }
-    guard !inCode else { return false }
     let text = storage.mutableString as NSString
+    // Tab indents by the configured width everywhere, including equations and code.
+    switch commandSelector {
+    case #selector(NSResponder.insertTab(_:)):
+      let spansLines = text.substring(with: selection).contains("\n")
+      if !inCode, !spansLines,
+        let edit = Formatting.indentList(
+          text: text, selection: selection, outdent: false, width: configuration.tabWidth)
+      {
+        apply(edit, actionName: "Increase Indent")
+      } else if spansLines {
+        indent(outdent: false)
+      } else {
+        apply(Formatting.softTab(text: text, selection: selection, width: configuration.tabWidth), actionName: "Typing")
+      }
+      return true
+    case #selector(NSResponder.insertBacktab(_:)):
+      indent(outdent: true)
+      return true
+    default:
+      break
+    }
+    guard !inCode else { return false }
     switch commandSelector {
     case #selector(NSResponder.insertNewline(_:)):
       if let edit = Formatting.newline(text: text, selection: selection) {
         apply(edit, actionName: "Typing")
-        return true
-      }
-    case #selector(NSResponder.insertTab(_:)):
-      if let edit = Formatting.indentList(text: text, selection: selection, outdent: false) {
-        apply(edit, actionName: "Increase Indent")
-        return true
-      }
-    case #selector(NSResponder.insertBacktab(_:)):
-      if let edit = Formatting.indentList(text: text, selection: selection, outdent: true) {
-        apply(edit, actionName: "Decrease Indent")
         return true
       }
     default:
@@ -661,6 +688,21 @@ public final class TypstEditor: NSObject, NSTextViewDelegate, @preconcurrency NS
       if style.contains(.marker) { color = .secondaryLabelColor }
       paragraph.minimumLineHeight = (sourceSize * 1.5).rounded()
     }
+    // Tab characters line up with the indentation width. The width comes from the paragraph's
+    // font, not this run's, so every run in a paragraph shares one paragraph style.
+    let paragraphFont: NSFont
+    switch mode {
+    case .source:
+      paragraphFont = Typefaces.editorMono(family: configuration.sourceFontName, size: sourceSize)
+    case .writing where run.paragraph.rawBlock || run.paragraph.mathCard == .source:
+      paragraphFont = Typefaces.editorMono(family: configuration.sourceFontName, size: bodySize * 0.8)
+    case .writing:
+      paragraphFont = Typefaces.serif(
+        size: bodySize * Presentation.headingScale(run.paragraph.heading), bold: false, italic: false)
+    }
+    paragraph.tabStops = []
+    paragraph.defaultTabInterval =
+      (" " as NSString).size(withAttributes: [.font: paragraphFont]).width * CGFloat(configuration.tabWidth)
     result[.foregroundColor] = color
     result[.paragraphStyle] = paragraph
     attributeCache[key] = result
@@ -866,6 +908,7 @@ public final class TypstEditor: NSObject, NSTextViewDelegate, @preconcurrency NS
   /// Draws the source card of an equation being edited, highlights behind inline equation
   /// source, and a quiet highlight on the rendered equation under the pointer.
   func drawDecorations(forGlyphRange glyphs: NSRange, at origin: NSPoint) {
+    drawIndentGuides(forCharacters: layout.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil), at: origin)
     drawAnnotations(forCharacters: layout.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil))
     guard concealing else { return }
     let characters = layout.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
@@ -1335,10 +1378,14 @@ public final class TypstEditor: NSObject, NSTextViewDelegate, @preconcurrency NS
       actionName: block ? "Display Equation" : "Equation")
   }
 
-  /// Indents or outdents the selected list items, beeping when there are none.
+  /// Indents or outdents the selected lines by one level; list items nest or unnest. Beeps when
+  /// there is nothing to outdent.
   public func indent(outdent: Bool) {
-    guard let edit = Formatting.indentList(
-      text: editableText, selection: textView.selectedRange(), outdent: outdent)
+    let selection = textView.selectedRange()
+    let width = configuration.tabWidth
+    guard
+      let edit = Formatting.indentList(text: editableText, selection: selection, outdent: outdent, width: width)
+        ?? Formatting.indentLines(text: editableText, selection: selection, outdent: outdent, width: width)
     else {
       NSSound.beep()
       return

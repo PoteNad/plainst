@@ -269,3 +269,40 @@ import Testing
     #expect(BracketMatch.pair(in: escaped, caret: 4, within: NSRange(location: 0, length: 4), skipStrings: false) == nil)
   }
 }
+
+@Suite struct Indentation {
+  @Test func countsColumnsWithTabStops() {
+    #expect(Formatting.columns(of: "    ", width: 4) == 4)
+    #expect(Formatting.columns(of: "\t", width: 4) == 4)
+    #expect(Formatting.columns(of: "  \t ", width: 4) == 5)
+  }
+
+  @Test func softTabsReachTheNextStop() {
+    let text = "ab" as NSString
+    let edit = Formatting.softTab(text: text, selection: NSRange(location: 2, length: 0), width: 4)
+    #expect(edit.applied(to: text as String) == "ab  ")
+    #expect(edit.selection.location == 4)
+    let aligned = Formatting.softTab(text: "x\nabcd" as NSString, selection: NSRange(location: 6, length: 0), width: 4)
+    #expect(aligned.replacement == "    ")
+  }
+
+  @Test func indentsAndOutdentsLines() {
+    let text = "one\n\ntwo\n" as NSString
+    let all = NSRange(location: 0, length: text.length)
+    let indented = Formatting.indentLines(text: text, selection: all, outdent: false, width: 4)
+    #expect(indented?.applied(to: text as String) == "    one\n\n    two\n")
+    let back = Formatting.indentLines(
+      text: "    one\n\t two\n" as NSString, selection: NSRange(location: 0, length: 14), outdent: true, width: 4)
+    #expect(back?.applied(to: "    one\n\t two\n") == "one\n two\n")
+    #expect(Formatting.indentLines(text: "flat" as NSString, selection: NSRange(), outdent: true, width: 4) == nil)
+  }
+
+  @Test func nestsListsByTheTabWidth() {
+    let text = "- a\n- b" as NSString
+    let edit = Formatting.indentList(text: text, selection: NSRange(location: 5, length: 0), outdent: false, width: 4)
+    #expect(edit?.applied(to: text as String) == "- a\n    - b")
+    let out = Formatting.indentList(
+      text: "- a\n    - b" as NSString, selection: NSRange(location: 9, length: 0), outdent: true, width: 4)
+    #expect(out?.applied(to: "- a\n    - b") == "- a\n- b")
+  }
+}

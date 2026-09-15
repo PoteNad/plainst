@@ -181,6 +181,19 @@ enum AppChecks {
     editor.selectionChanged()
     guard editor.highlightedBrackets == nil else { fail("a letter should not highlight brackets") }
 
+    // Tab nests list items and indents text by the tab width, and Shift-Tab undoes it.
+    editor.typst.configuration.tabWidth = 4
+    editor.loadText("- a\n- b\nx")
+    editor.textView.setSelectedRange(NSRange(location: 7, length: 0))
+    editor.textView.doCommand(by: #selector(NSResponder.insertTab(_:)))
+    editor.textView.setSelectedRange(NSRange(location: editor.storage.length, length: 0))
+    editor.textView.doCommand(by: #selector(NSResponder.insertTab(_:)))
+    guard editor.text == "- a\n    - b\nx   " else { fail("Tab should indent by four columns: \(editor.text.debugDescription)") }
+    editor.textView.setSelectedRange(NSRange(location: 9, length: 0))
+    editor.textView.doCommand(by: #selector(NSResponder.insertBacktab(_:)))
+    guard editor.text == "- a\n- b\nx   " else { fail("Shift-Tab should outdent the item: \(editor.text.debugDescription)") }
+    pass("Tab and Shift-Tab indent by the configured width")
+
     editor.loadText("= Draft\n\nHello #nothing-here\n")
     after(2) {
       guard editor.diagnostics.contains(where: \.isError), editor.annotations.count == 1 else {

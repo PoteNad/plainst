@@ -8,9 +8,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
   private let recentMenu = NSMenu(title: "Open Recent")
   private var writingToolsItems: [NSMenuItem] = []
 
-  func applicationDidFinishLaunching(_ notification: Notification) {
+  // Menus are built before windows are restored or opened, so the menu bar is never empty
+  // while the first document appears.
+  func applicationWillFinishLaunching(_ notification: Notification) {
     NSWindow.allowsAutomaticWindowTabbing = true
     buildMenus()
+  }
+
+  func applicationDidFinishLaunching(_ notification: Notification) {
     NotificationCenter.default.addObserver(
       self, selector: #selector(preferencesDidChange), name: .editorDefaultsDidChange, object: nil)
     TypstEditor.engineQueue.async { Engine.warmUp() }
@@ -234,7 +239,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
   }
 
   @objc func showAbout(_ sender: Any?) {
+    // Like PoteNad, show only the version, not the build number.
     NSApp.orderFrontStandardAboutPanel(options: [
+      .version: "",
       .credits: NSAttributedString(
         string: "A small, native Typst editor for prose and math.\nTypesetting by the Typst compiler (Apache-2.0).",
         attributes: [.font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize), .foregroundColor: NSColor.secondaryLabelColor])
