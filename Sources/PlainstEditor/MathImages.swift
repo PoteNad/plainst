@@ -2,22 +2,31 @@ import AppKit
 import PlainstCore
 
 /// Identifies one rendering of an equation.
-struct MathKey: Hashable, Sendable {
-  var source: String
-  var block: Bool
+public struct MathKey: Hashable, Sendable {
+  public var source: String
+  public var block: Bool
   /// The size of 1em in view points, times 100.
-  var emSize: Int
+  public var emSize: Int
   /// Pixels per view point, times 100.
-  var backingScale: Int
-  var color: UInt32
+  public var backingScale: Int
+  /// The text colour as packed RGBA, from ``MathImages/packedColor(_:appearance:)``.
+  public var color: UInt32
+
+  public init(source: String, block: Bool, emSize: Int, backingScale: Int, color: UInt32) {
+    self.source = source
+    self.block = block
+    self.emSize = emSize
+    self.backingScale = backingScale
+    self.color = color
+  }
 }
 
 /// Renders equations with Typst in the background and keeps the results.
 @MainActor
-final class MathImages {
-  static let shared = MathImages()
+public final class MathImages {
+  public static let shared = MathImages()
 
-  enum Entry {
+  public enum Entry {
     case rendered(NSImage, size: CGSize, baseline: CGFloat)
     case failed(String)
   }
@@ -29,14 +38,14 @@ final class MathImages {
   private let queue = DispatchQueue(label: "io.github.PoteNad.plainst.math", qos: .userInitiated)
   private let limit = 800
 
-  static let didRender = Notification.Name("PlainstMathDidRender")
+  public static let didRender = Notification.Name("PlainstMathDidRender")
 
-  func entry(_ key: MathKey) -> Entry? { cache[key] }
+  public func entry(_ key: MathKey) -> Entry? { cache[key] }
 
   /// Returns a cached rendering or starts one. `completion` runs on the main thread when a
   /// new rendering finishes.
   @discardableResult
-  func request(_ key: MathKey, completion: ((Entry) -> Void)? = nil) -> Entry? {
+  public func request(_ key: MathKey, completion: ((Entry) -> Void)? = nil) -> Entry? {
     if let entry = cache[key] { return entry }
     if let completion { waiting[key, default: []].append(completion) }
     guard pending.insert(key).inserted else { return nil }
@@ -80,7 +89,7 @@ final class MathImages {
     NotificationCenter.default.post(name: Self.didRender, object: nil)
   }
 
-  static func packedColor(_ color: NSColor, appearance: NSAppearance) -> UInt32 {
+  public static func packedColor(_ color: NSColor, appearance: NSAppearance) -> UInt32 {
     var result: UInt32 = 0xFF
     appearance.performAsCurrentDrawingAppearance {
       guard let rgb = color.usingColorSpace(.sRGB) else { return }

@@ -1,5 +1,6 @@
 import AppKit
 import PlainstCore
+import PlainstEditor
 
 /// The document's headings as a table of contents in the sidebar, like Preview's.
 @MainActor

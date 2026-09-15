@@ -36,6 +36,22 @@ open build/Plainst.app
 
 The build compiles the Typst engine in `engine/` as a static library, builds the Swift app, and ad-hoc signs it for the current Mac. Run `./scripts/check.sh` for the full test suite, which includes end-to-end checks of editing, saving, and PDF export.
 
+## Using the editor in another app
+
+The editor itself is the `PlainstEditor` library in this package, separate from the Plainst app. `TypstEditor` provides the Writing and Source views, rendered equations, Typst completions, automatic pairs, bracket matching, and diagnostics. The app adds documents, the toolbar, the status bar, the outline, the preview, and the symbols inspector around it.
+
+```swift
+import PlainstCore
+import PlainstEditor
+
+Typefaces.registerBundledFonts()  // once, at launch
+let editor = TypstEditor(text: "Let $x = 5$.", configuration: .init(completions: true))
+editor.delegate = self  // TypstEditorDelegate: text, selection, display and compile events
+window.contentView = editor.scrollView
+```
+
+Commands such as `toggle(_:actionName:)`, `insertEquation(block:)`, `insertMath(_:snippet:)`, and `setMode(_:)` edit the text through the text view, so they can be undone. The library links the Typst engine, so build it with `./scripts/build.sh` first.
+
 ## License
 
 MIT — see [LICENSE](LICENSE). Plainst includes the Typst compiler and Typst's default fonts under their own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

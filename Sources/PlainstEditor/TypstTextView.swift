@@ -88,17 +88,18 @@ extension Array where Element == Int {
   }
 }
 
-final class WritingTextView: NSTextView {
-  weak var editor: Editor?
+/// The text view inside a ``TypstEditor``. Configure the editor rather than this view.
+public final class TypstTextView: NSTextView {
+  weak var editor: TypstEditor?
 
-  override func magnify(with event: NSEvent) {
+  override public func magnify(with event: NSEvent) {
     guard let editor else { return super.magnify(with: event) }
     editor.setZoom(editor.zoomPercent + Int((event.magnification * 100).rounded()))
   }
 
   private var hoverTracking: NSTrackingArea?
 
-  override func updateTrackingAreas() {
+  override public func updateTrackingAreas() {
     super.updateTrackingAreas()
     if let hoverTracking { removeTrackingArea(hoverTracking) }
     let area = NSTrackingArea(
@@ -108,17 +109,17 @@ final class WritingTextView: NSTextView {
     hoverTracking = area
   }
 
-  override func mouseMoved(with event: NSEvent) {
+  override public func mouseMoved(with event: NSEvent) {
     super.mouseMoved(with: event)
     editor?.mouseMoved(to: convert(event.locationInWindow, from: nil))
   }
 
-  override func mouseExited(with event: NSEvent) {
+  override public func mouseExited(with event: NSEvent) {
     super.mouseExited(with: event)
     editor?.mouseMoved(to: nil)
   }
 
-  override func mouseDown(with event: NSEvent) {
+  override public func mouseDown(with event: NSEvent) {
     let point = convert(event.locationInWindow, from: nil)
     if let editor, editor.handleClick(at: point, event: event) { return }
     let belowText = isBelowText(point)
@@ -148,7 +149,7 @@ final class WritingTextView: NSTextView {
     return y >= lastLine.maxY
   }
 
-  override func insertText(_ string: Any, replacementRange: NSRange) {
+  override public func insertText(_ string: Any, replacementRange: NSRange) {
     guard let editor, let typed = (string as? String) ?? (string as? NSAttributedString)?.string,
       replacementRange.location == NSNotFound || replacementRange == selectedRange()
     else { return super.insertText(string, replacementRange: replacementRange) }
@@ -158,12 +159,12 @@ final class WritingTextView: NSTextView {
   }
 
   /// ⌥⎋ and Edit ▸ Show Completions ask Typst for suggestions at the cursor.
-  override func complete(_ sender: Any?) {
+  override public func complete(_ sender: Any?) {
     guard let editor else { return super.complete(sender) }
     editor.assistant.request(explicit: true)
   }
 
-  override func readSelection(from pboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
+  override public func readSelection(from pboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
     // Paste only text, normalising line endings like the file loader does.
     guard let value = pboard.string(forType: .string) else { return false }
     editor?.assistant.isSuspended = true
@@ -174,14 +175,14 @@ final class WritingTextView: NSTextView {
     return true
   }
 
-  override var readablePasteboardTypes: [NSPasteboard.PasteboardType] { [.string] }
+  override public var readablePasteboardTypes: [NSPasteboard.PasteboardType] { [.string] }
 }
 
 /// Keeps the text column centred at a comfortable reading width.
-final class EditorScrollView: NSScrollView {
-  var columnWidth: CGFloat = 680 { didSet { tile() } }
+public final class TypstScrollView: NSScrollView {
+  public internal(set) var columnWidth: CGFloat = 680 { didSet { tile() } }
 
-  override func tile() {
+  override public func tile() {
     super.tile()
     guard let text = documentView as? NSTextView else { return }
     let available = contentSize.width

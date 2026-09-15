@@ -16,12 +16,23 @@ let checking = Context.environment["PLAINST_CHECKS"] == "1"
 
 let package = Package(
   name: "Plainst", platforms: [.macOS(.v13)],
-  products: [.executable(name: "Plainst", targets: ["Plainst"])],
+  products: [
+    .executable(name: "Plainst", targets: ["Plainst"]),
+    // The Typst editor view, for other apps. It needs the engine library built by scripts/build.sh.
+    .library(name: "PlainstEditor", targets: ["PlainstEditor"]),
+  ],
   targets: [
     .systemLibrary(name: "CPlainstEngine", path: "Sources/CPlainstEngine"),
     .target(name: "PlainstCore", dependencies: ["CPlainstEngine"], linkerSettings: linkEngine),
+    .target(
+      name: "PlainstEditor", dependencies: ["PlainstCore"],
+      // The app's checks look inside the editor with @testable import.
+      swiftSettings: checking ? [.define("PLAINST_CHECKS"), .unsafeFlags(["-enable-testing"])] : [],
+      linkerSettings: linkEngine),
     .executableTarget(
-      name: "Plainst", dependencies: ["PlainstCore"], exclude: checking ? [] : ["AppChecks.swift"],
+      name: "Plainst", dependencies: ["PlainstCore", "PlainstEditor"], exclude: checking ? [] : ["AppChecks.swift"],
       swiftSettings: checking ? [.define("PLAINST_CHECKS")] : [], linkerSettings: linkApp),
     .testTarget(name: "PlainstCoreTests", dependencies: ["PlainstCore"], linkerSettings: linkEngine),
+    .testTarget(
+      name: "PlainstEditorTests", dependencies: ["PlainstCore", "PlainstEditor"], linkerSettings: linkEngine),
   ])

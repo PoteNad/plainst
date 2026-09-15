@@ -1,5 +1,6 @@
 import AppKit
 import PlainstCore
+import PlainstEditor
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
@@ -12,7 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     buildMenus()
     NotificationCenter.default.addObserver(
       self, selector: #selector(preferencesDidChange), name: .editorDefaultsDidChange, object: nil)
-    Editor.engineQueue.async { Engine.warmUp() }
+    TypstEditor.engineQueue.async { Engine.warmUp() }
     #if PLAINST_CHECKS
       // Automated checks run in the background so they never take keyboard focus from the user.
       if AppChecks.isChecking { return }

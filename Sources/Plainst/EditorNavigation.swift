@@ -1,7 +1,8 @@
 import AppKit
 import PlainstCore
+import PlainstEditor
 
-/// The heading outline menu and matching-bracket highlights.
+/// The heading outline menu.
 extension Editor: NSMenuDelegate {
   // MARK: Outline
 
@@ -20,7 +21,7 @@ extension Editor: NSMenuDelegate {
 
   func fillOutlineMenu(_ menu: NSMenu) {
     menu.removeAllItems()
-    let headings = DocumentOutline.headings(text: storage.mutableString, elements: elements)
+    let headings = typst.headings
     guard !headings.isEmpty else {
       let empty = NSMenuItem(title: "No Headings", action: nil, keyEquivalent: "")
       empty.isEnabled = false
@@ -53,10 +54,7 @@ extension Editor: NSMenuDelegate {
     let menu = makeOutlineMenu()
     fillOutlineMenu(menu)
     let caret = textView.selectedRange()
-    let glyphs = layout.glyphRange(
-      forCharacterRange: NSRange(location: caret.location, length: 0), actualCharacterRange: nil)
-    var rect = layout.boundingRect(forGlyphRange: glyphs, in: container)
-    rect = rect.offsetBy(dx: textView.textContainerOrigin.x, dy: textView.textContainerOrigin.y)
+    let rect = typst.textViewRect(for: NSRange(location: caret.location, length: 0))
     let visible = textView.visibleRect
     let point = NSPoint(
       x: min(max(rect.minX, visible.minX + 20), visible.maxX - 40),
@@ -72,60 +70,16 @@ extension Editor: NSMenuDelegate {
 
   /// Puts the cursor at the end of a heading's text and scrolls the heading near the top.
   func jump(toHeading range: NSRange, focusText: Bool = true) {
-    guard NSMaxRange(range) <= storage.length else { return }
+    guard NSMaxRange(range) <= typst.textLength else { return }
     var end = NSMaxRange(range)
-    let text = storage.mutableString
+    let text = typst.string
     while end > range.location, [0x20, 0x09].contains(text.character(at: end - 1)) { end -= 1 }
     if focusText { window?.makeFirstResponder(textView) }
     textView.setSelectedRange(NSRange(location: end, length: 0))
-    scrollToTop(of: range)
+    typst.scrollToTop(of: range)
   }
 
-  func scrollToTop(of range: NSRange) {
-    layout.ensureLayout(forCharacterRange: range)
-    let glyphs = layout.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
-    let rect = layout.boundingRect(forGlyphRange: glyphs, in: container)
-    let clip = scroll.contentView
-    var bounds = clip.bounds
-    bounds.origin.y = max(0, rect.minY + textView.textContainerOrigin.y - bodySize * 1.5)
-    clip.scroll(to: clip.constrainBoundsRect(bounds).origin)
-    scroll.reflectScrolledClipView(clip)
-  }
 
-  // MARK: Matching brackets
-
-  /// Highlights the bracket beside the cursor and its partner, within the equation, code or
-  /// paragraph the cursor is in.
-  func updateBracketHighlight() {
-    let full = NSRange(location: 0, length: storage.length)
-    if let previous = highlightedBrackets {
-      highlightedBrackets = nil
-      for range in [previous.0, previous.1] where NSMaxRange(range) <= full.length {
-        layout.removeTemporaryAttribute(.backgroundColor, forCharacterRange: range)
-      }
-    }
-    let caret = textView.selectedRange()
-    guard caret.length == 0, storage.length > 0, !textView.hasMarkedText() else { return }
-    let text = storage.mutableString
-    let code = elements.last {
-      [.math, .code, .raw].contains($0.kind) && $0.range.location < caret.location
-        && caret.location <= NSMaxRange($0.range)
-    }
-    let limit = code?.range ?? text.paragraphRange(for: NSRange(location: min(caret.location, text.length), length: 0))
-    guard code?.kind != .raw,
-      let pair = BracketMatch.pair(
-        in: text, caret: caret.location, within: limit, skipStrings: code != nil)
-    else { return }
-    // Brackets hidden in the Writing view have nothing to highlight.
-    if concealing && (presentation.hidden.contains(pair.0.location) || presentation.hidden.contains(pair.1.location)) {
-      return
-    }
-    let color = NSColor.controlAccentColor.withAlphaComponent(0.35)
-    for range in [pair.0, pair.1] {
-      layout.addTemporaryAttribute(.backgroundColor, value: color, forCharacterRange: range)
-    }
-    highlightedBrackets = pair
-  }
 }
 
 extension NSFont {

@@ -2,6 +2,22 @@
 import AppKit
 import PDFKit
 import PlainstCore
+@testable import PlainstEditor
+
+  // The checks look inside the editor the way its own code does.
+  extension Editor {
+    var storage: NSTextStorage { typst.storage }
+    var layout: NSLayoutManager { typst.layout }
+    var container: NSTextContainer { typst.container }
+    var presentation: Presentation { typst.presentation }
+    var assistant: TypingAssistant { typst.assistant }
+    var preview: NSView { typst.preview }
+    var diagnostics: [Diagnostic] { typst.diagnostics }
+    var annotations: [TypstEditor.Annotation] { typst.annotations }
+    var highlightedBrackets: (NSRange, NSRange)? { typst.highlightedBrackets }
+    func selectionChanged() { typst.selectionChanged() }
+    func showHover(at index: Int) { typst.showHover(at: index) }
+  }
 
 /// End-to-end checks driven by environment variables, used by scripts/check.sh.
 @MainActor

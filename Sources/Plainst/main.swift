@@ -1,5 +1,6 @@
 import AppKit
 import PlainstCore
+import PlainstEditor
 
 let app = NSApplication.shared
 let documentController = PlainstDocumentController()

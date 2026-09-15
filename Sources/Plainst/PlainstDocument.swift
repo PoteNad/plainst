@@ -1,6 +1,7 @@
 import AppKit
 import PDFKit
 import PlainstCore
+import PlainstEditor
 import UniformTypeIdentifiers
 
 extension UTType {
@@ -90,7 +91,7 @@ final class PlainstDocument: NSDocument {
   /// Compiles the current text off the main thread and hands back the PDF or the first error.
   func makePDF(_ completion: @escaping @MainActor (Result<Data, EngineError>) -> Void) {
     let text = currentText
-    Editor.engineQueue.async {
+    TypstEditor.engineQueue.async {
       let result = Engine.compile(text, pdf: true)
       DispatchQueue.main.async {
         MainActor.assumeIsolated {

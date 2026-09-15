@@ -4,7 +4,7 @@ import PlainstCore
 /// Typing assistance: Typst completions, snippet placeholders, and automatic pairs.
 @MainActor
 final class TypingAssistant {
-  unowned let editor: Editor
+  unowned let editor: TypstEditor
   let popup = CompletionPopup()
   private static let queue = DispatchQueue(label: "io.github.PoteNad.plainst.complete", qos: .userInitiated)
   private var generation = 0
@@ -15,13 +15,13 @@ final class TypingAssistant {
   /// Set while pasting or applying an edit, so the text isn't treated as typing.
   var isSuspended = false
 
-  init(editor: Editor) {
+  init(editor: TypstEditor) {
     self.editor = editor
     popup.onAccept = { [weak self] completion in self?.accept(completion) }
   }
 
   private var text: NSString { editor.storage.mutableString }
-  private var view: WritingTextView { editor.textView }
+  private var view: TypstTextView { editor.textView }
 
   /// Whether a location is inside an equation or embedded code, where Typst code rules apply.
   func isInCode(_ location: Int) -> Bool {
@@ -35,7 +35,7 @@ final class TypingAssistant {
 
   /// Handles a typed string before it is inserted. Returns true when the assistant inserted it.
   func handleTyping(_ string: String) -> Bool {
-    guard !isSuspended, AppPreferences.autoPair, !view.hasMarkedText() else { return false }
+    guard !isSuspended, editor.configuration.autoPair, !view.hasMarkedText() else { return false }
     let selection = view.selectedRange()
     guard
       let edit = AutoPair.edit(
@@ -46,7 +46,7 @@ final class TypingAssistant {
   }
 
   func handleDeleteBackward() -> Bool {
-    guard AppPreferences.autoPair,
+    guard editor.configuration.autoPair,
       let edit = AutoPair.deleteBackward(text: text, selection: view.selectedRange())
     else { return false }
     editor.apply(edit, actionName: "Typing")
@@ -93,7 +93,7 @@ final class TypingAssistant {
 
   /// Called after the text changes because of typing.
   func textDidChange(typed: String?) {
-    guard AppPreferences.completions, let typed, !isSuspended else {
+    guard editor.configuration.completions, let typed, !isSuspended else {
       if typed == nil { dismiss() }
       return
     }
@@ -164,7 +164,7 @@ final class TypingAssistant {
   /// Asks Typst for completions at the cursor and shows them when they arrive.
   func request(explicit: Bool) {
     let caret = view.selectedRange()
-    guard caret.length == 0, editor.window != nil else { return dismiss() }
+    guard caret.length == 0, editor.textView.window != nil else { return dismiss() }
     let snapshot = editor.text
     // Keep filtering the previous results while the word being completed grows.
     if !explicit, let cached, popup.isVisible, caret.location >= cached.list.from,
@@ -215,7 +215,7 @@ final class TypingAssistant {
       return a.offset < b.offset
     }.prefix(100).map(\.element.1)
     // Nothing left to suggest once the word is already complete.
-    guard let window = editor.window, !items.isEmpty,
+    guard let window = editor.textView.window, !items.isEmpty,
       !(items.count == 1 && items[0].label.lowercased() == typed)
     else { return popup.hide() }
     let caretRect = view.firstRect(
@@ -247,12 +247,12 @@ final class TypingAssistant {
   }
 }
 
-extension Editor {
+extension TypstEditor {
   /// Inserts a symbol name or math snippet at the cursor. Inside an equation it goes in as is;
   /// elsewhere it is wrapped in dollar signs. A selection fills the snippet's first placeholder.
-  func insertMath(_ code: String, snippet isSnippet: Bool) {
+  public func insertMath(_ code: String, snippet isSnippet: Bool) {
     guard textView.isEditable else { return }
-    window?.makeFirstResponder(textView)
+    textView.window?.makeFirstResponder(textView)
     let text = storage.mutableString
     let selection = textView.selectedRange()
     let inMath = elements.contains {

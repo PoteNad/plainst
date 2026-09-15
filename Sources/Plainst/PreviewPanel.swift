@@ -1,5 +1,6 @@
 import AppKit
 import PlainstCore
+import PlainstEditor
 
 /// The typeset document beside the editor. Each page is an image rendered by Typst, and
 /// only pages whose content changed are rendered again, so updates never flash.

@@ -1,5 +1,6 @@
 import AppKit
 import PlainstCore
+import PlainstEditor
 
 /// A browsable, searchable collection of Typst symbols and math structures.
 enum SymbolCatalog {
