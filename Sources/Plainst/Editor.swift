@@ -53,6 +53,8 @@ final class Editor: NSWindowController, NSMenuItemValidation, NSWindowDelegate, 
     toolbar.delegate = self
     toolbar.displayMode = .iconOnly
     toolbar.allowsUserCustomization = false
+    // The buttons are icons with tooltips; text labels crowd the title and the view switch.
+    if #available(macOS 15.0, *) { toolbar.allowsDisplayModeCustomization = false }
     window.toolbar = toolbar
     window.toolbarStyle = .unified
     statusBar.material = .headerView
@@ -106,6 +108,7 @@ final class Editor: NSWindowController, NSMenuItemValidation, NSWindowDelegate, 
     if !isAutomatedCheck { split.splitView.autosaveName = "PlainstEditorSplit" }
     window.contentViewController = split
     placeWindow()
+    if previewVisible { DispatchQueue.main.async { [weak self] in self?.layoutPreview() } }
     let scroll = typst.scrollView
     root.addSubview(scroll)
     root.addSubview(statusBar)
@@ -151,8 +154,11 @@ final class Editor: NSWindowController, NSMenuItemValidation, NSWindowDelegate, 
     guard let window else { return }
     let screen = (NSApp.keyWindow ?? NSApp.mainWindow)?.screen ?? NSScreen.main
     guard let visible = screen?.visibleFrame else { return window.center() }
+    // Windows that open with the preview showing are wide enough for the text and a page.
+    let width = previewVisible ? max(1040, contentWidthWithPreview()) : 1040
     let size = NSSize(
-      width: min(1040, visible.width * 0.8).rounded(), height: min(740, visible.height * 0.85).rounded())
+      width: min(width, visible.width * (previewVisible ? 0.95 : 0.8)).rounded(),
+      height: min(740, visible.height * 0.85).rounded())
     let frame = window.frameRect(forContentRect: NSRect(origin: .zero, size: size))
     window.setFrame(
       NSRect(
@@ -343,10 +349,13 @@ final class Editor: NSWindowController, NSMenuItemValidation, NSWindowDelegate, 
     if show {
       sidebarOutlineVersion = typst.outlineVersion
       outlineSidebar.update(headings: typst.headings, caret: textView.selectedRange().location)
+      growWindow(outline: true, preview: previewVisible, symbols: symbolsVisible)
     }
     NSAnimationContext.runAnimationGroup { context in
       context.duration = 0.2
       outlineItem.animator().isCollapsed = !show
+    } completionHandler: { [weak self] in
+      MainActor.assumeIsolated { if show { self?.layoutPreview() } }
     }
     if !isAutomatedCheck { UserDefaults.standard.set(show, forKey: PreferenceKey.outlineVisible) }
   }
@@ -356,34 +365,15 @@ final class Editor: NSWindowController, NSMenuItemValidation, NSWindowDelegate, 
 
   @objc func togglePreview(_ sender: Any?) {
     let show = previewItem.isCollapsed
-    if show && !previewPane.hasDocument, let window {
-      // Open the preview beside the text rather than squeezing the text column.
-      var frame = window.frame
-      let screen = window.screen?.visibleFrame ?? frame
-      let wanted = min(frame.width + 420, screen.width)
-      if wanted > frame.width {
-        frame.origin.x = max(screen.minX, min(frame.origin.x, screen.maxX - wanted))
-        frame.size.width = wanted
-        window.setFrame(frame, display: true, animate: false)
-      }
-    }
-    if show, !previewPane.hasDocument, let split = window?.contentViewController as? NSSplitViewController,
-      let divider = split.splitViewItems.firstIndex(of: previewItem).map({ $0 - 1 })
-    {
-      // The first time, split the space between the text and the preview evenly.
+    if show {
+      // Every time the preview opens, make room for a full-size page beside the text.
+      growWindow(outline: outlineVisible, preview: true, symbols: symbolsVisible)
       previewItem.isCollapsed = false
-      DispatchQueue.main.async { [self] in
-        split.splitView.layoutSubtreeIfNeeded()
-        let panes = split.splitView.arrangedSubviews
-        guard panes.count == split.splitViewItems.count else { return }
-        let start = outlineVisible ? panes[0].frame.maxX : 0
-        let end = symbolsVisible ? panes[panes.count - 1].frame.minX : split.splitView.bounds.width
-        split.splitView.setPosition((start + (end - start) / 2).rounded(), ofDividerAt: divider)
-      }
+      DispatchQueue.main.async { [weak self] in self?.layoutPreview() }
     } else {
       NSAnimationContext.runAnimationGroup { context in
         context.duration = 0.2
-        previewItem.animator().isCollapsed = !show
+        previewItem.animator().isCollapsed = true
       }
     }
     if !isAutomatedCheck { UserDefaults.standard.set(show, forKey: PreferenceKey.previewVisible) }
@@ -391,6 +381,54 @@ final class Editor: NSWindowController, NSMenuItemValidation, NSWindowDelegate, 
     if show {
       typst.scheduleCompile(delay: 0)
     }
+  }
+
+  /// The narrowest the text beside the preview should get.
+  private static let textBesidePreview: CGFloat = 480
+  /// The narrowest the text should get beside sidebars alone.
+  private static let textBesideSidebars: CGFloat = 560
+
+  /// The window content width that fits the text with the given panels open, with a full-size
+  /// page in the preview.
+  private func contentWidth(outline: Bool, preview: Bool, symbols: Bool) -> CGFloat {
+    var width = preview ? Self.textBesidePreview + previewPane.fittingWidth : Self.textBesideSidebars
+    if outline { width += max(outlineItem.minimumThickness, outlineItem.viewController.view.frame.width) }
+    if symbols { width += max(symbolsItem.minimumThickness, symbolsItem.viewController.view.frame.width) }
+    return width.rounded(.up)
+  }
+
+  private func contentWidthWithPreview() -> CGFloat {
+    contentWidth(outline: outlineVisible, preview: true, symbols: symbolsVisible)
+  }
+
+  /// Widens the window, within its screen, when it is too narrow for the panels about to show.
+  private func growWindow(outline: Bool, preview: Bool, symbols: Bool) {
+    guard let window, let visible = (window.screen ?? NSScreen.main)?.visibleFrame else { return }
+    let content = window.contentRect(forFrameRect: window.frame)
+    let wanted = min(contentWidth(outline: outline, preview: preview, symbols: symbols), visible.width)
+    guard wanted > content.width + 1 else { return }
+    var frame = window.frameRect(forContentRect: NSRect(origin: content.origin, size: NSSize(width: wanted, height: content.height)))
+    // Grow evenly on both sides, then keep the whole window on screen.
+    frame.origin.x = (window.frame.midX - frame.width / 2).rounded()
+    frame.origin.x = max(visible.minX, min(frame.origin.x, visible.maxX - frame.width))
+    window.setFrame(frame, display: true, animate: false)
+  }
+
+  /// Gives the preview a full-size page when there is room, and otherwise splits the space
+  /// between the text and the preview evenly.
+  private func layoutPreview() {
+    guard previewVisible, let split = window?.contentViewController as? NSSplitViewController,
+      let item = split.splitViewItems.firstIndex(of: previewItem), item > 0
+    else { return }
+    split.splitView.layoutSubtreeIfNeeded()
+    let panes = split.splitView.arrangedSubviews
+    guard panes.count == split.splitViewItems.count else { return }
+    let start = outlineVisible ? panes[0].frame.maxX : 0
+    let end = symbolsVisible ? panes[panes.count - 1].frame.minX : split.splitView.bounds.width
+    let space = end - start
+    let previewWidth = space - previewPane.fittingWidth >= Self.textBesidePreview
+      ? previewPane.fittingWidth : (space / 2).rounded()
+    split.splitView.setPosition((end - previewWidth).rounded(), ofDividerAt: item - 1)
   }
 
   var symbolsVisible: Bool { !symbolsItem.isCollapsed }
@@ -425,9 +463,12 @@ final class Editor: NSWindowController, NSMenuItemValidation, NSWindowDelegate, 
 
   @objc func toggleSymbols(_ sender: Any?) {
     let show = symbolsItem.isCollapsed
+    if show { growWindow(outline: outlineVisible, preview: previewVisible, symbols: true) }
     NSAnimationContext.runAnimationGroup { context in
       context.duration = 0.2
       symbolsItem.animator().isCollapsed = !show
+    } completionHandler: { [weak self] in
+      MainActor.assumeIsolated { if show { self?.layoutPreview() } }
     }
     if !isAutomatedCheck { UserDefaults.standard.set(show, forKey: PreferenceKey.symbolsVisible) }
     if show { symbols.focusSearch() } else { window?.makeFirstResponder(textView) }

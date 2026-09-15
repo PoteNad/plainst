@@ -15,7 +15,7 @@ final class OutlineSidebarController: NSViewController, NSOutlineViewDataSource,
   weak var editor: Editor?
   let outlineView = NSOutlineView()
   private let scroll = NSScrollView()
-  private let empty = NSTextField(wrappingLabelWithString: "")
+  private let empty = NSStackView()
   private(set) var roots: [Node] = []
   private var flat: [Node] = []
   private var entries: [HeadingEntry] = []
@@ -42,10 +42,28 @@ final class OutlineSidebarController: NSViewController, NSOutlineViewDataSource,
     scroll.hasVerticalScroller = true
     scroll.autohidesScrollers = true
 
-    empty.stringValue = "No Headings\nStart a line with = to add a heading."
-    empty.alignment = .center
-    empty.textColor = .secondaryLabelColor
-    empty.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+    // An empty state in the system style: a quiet symbol, a title, and a short hint.
+    let symbol = NSImageView(
+      image: NSImage(systemSymbolName: "list.bullet.indent", accessibilityDescription: nil)!
+        .withSymbolConfiguration(.init(pointSize: 28, weight: .light))!)
+    symbol.contentTintColor = .tertiaryLabelColor
+    let title = NSTextField(labelWithString: "No Headings")
+    title.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
+    title.textColor = .secondaryLabelColor
+    let hint = NSTextField(wrappingLabelWithString: "Lines that start with = appear here.")
+    hint.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+    hint.textColor = .tertiaryLabelColor
+    hint.alignment = .center
+    empty.orientation = .vertical
+    empty.alignment = .centerX
+    empty.spacing = 4
+    empty.addArrangedSubview(symbol)
+    empty.addArrangedSubview(title)
+    empty.addArrangedSubview(hint)
+    empty.setCustomSpacing(10, after: symbol)
+    empty.setAccessibilityElement(true)
+    empty.setAccessibilityRole(.group)
+    empty.setAccessibilityLabel("No headings. Lines that start with = appear here.")
 
     for view in [scroll, empty] {
       view.translatesAutoresizingMaskIntoConstraints = false

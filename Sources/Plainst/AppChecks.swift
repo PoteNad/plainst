@@ -288,8 +288,40 @@ enum AppChecks {
               guard before > pane.fittingWidth + 100, abs(width - pane.fittingWidth) <= 2, editor.previewVisible else {
                 fail("double-clicking the divider should fit the preview to \(pane.fittingWidth), not \(before) → \(width)")
               }
-              editor.togglePreview(nil)
               pass("double-clicking the preview's divider fits it to the page")
+
+              // Each time the preview opens, the window makes room for the text and a full page.
+              let previewPane = editor.previewPane
+              let needed = 480 + previewPane.fittingWidth
+              for round in 1...2 {
+                editor.togglePreview(nil)
+                editor.window?.setContentSize(NSSize(width: 900, height: 700))
+                editor.togglePreview(nil)
+                RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.3))
+                let content = editor.window?.contentLayoutRect.width ?? 0
+                let previewWidth = previewPane.view.frame.width
+                guard editor.previewVisible, content >= min(needed, editor.window?.screen?.visibleFrame.width ?? needed) - 2,
+                  abs(previewWidth - previewPane.fittingWidth) <= 2 || content < needed
+                else {
+                  fail("showing the preview (time \(round)) left the window \(content) wide with a \(previewWidth) preview; it needs \(needed)")
+                }
+              }
+              // Opening a sidebar beside the preview makes room too, keeping the page full size.
+              editor.window?.setContentSize(NSSize(width: 1200, height: 700))
+              RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.3))
+              editor.toggleSymbols(nil)
+              RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.6))
+              let withSymbols = editor.window?.contentLayoutRect.width ?? 0
+              let screenWidth = editor.window?.screen?.visibleFrame.width ?? 0
+              guard editor.symbolsVisible,
+                withSymbols >= needed + 268 - 2 || withSymbols >= screenWidth - 2,
+                abs(previewPane.view.frame.width - previewPane.fittingWidth) <= 2 || withSymbols >= screenWidth - 2
+              else {
+                fail("opening symbols beside the preview left the window \(withSymbols) wide with a \(previewPane.view.frame.width) preview")
+              }
+              editor.toggleSymbols(nil)
+              pass("the preview makes room for a full page every time it opens, and sidebars make room beside it")
+              editor.togglePreview(nil)
         editor.loadText(Guide.text)
         editor.toggleOutline(nil)
         after(0.5) {
