@@ -163,7 +163,7 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
     symbolsItem.maximumThickness = 380
     symbolsItem.isCollapsed = !UserDefaults.standard.bool(forKey: PreferenceKey.symbolsVisible)
     split.addSplitViewItem(symbolsItem)
-    split.splitView.autosaveName = "PlainstSymbolsSplit"
+    if !isAutomatedCheck { split.splitView.autosaveName = "PlainstSymbolsSplit" }
     window.contentViewController = split
     if !window.setFrameUsingName("PlainstDocumentWindow") {
       window.setContentSize(NSSize(width: 920, height: 720))
@@ -1216,13 +1216,22 @@ final class Editor: NSWindowController, NSTextViewDelegate, @preconcurrency NSTe
 
   var symbolsVisible: Bool { !symbolsItem.isCollapsed }
 
+  /// Automated checks must leave the user's saved window and sidebar state alone.
+  private var isAutomatedCheck: Bool {
+    #if PLAINST_CHECKS
+      AppChecks.isChecking
+    #else
+      false
+    #endif
+  }
+
   @objc func toggleSymbols(_ sender: Any?) {
     let show = symbolsItem.isCollapsed
     NSAnimationContext.runAnimationGroup { context in
       context.duration = 0.2
       symbolsItem.animator().isCollapsed = !show
     }
-    UserDefaults.standard.set(show, forKey: PreferenceKey.symbolsVisible)
+    if !isAutomatedCheck { UserDefaults.standard.set(show, forKey: PreferenceKey.symbolsVisible) }
     if show { symbols.focusSearch() } else { window?.makeFirstResponder(textView) }
   }
   private var viewGroup: NSToolbarItemGroup?

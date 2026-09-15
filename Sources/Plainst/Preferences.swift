@@ -217,7 +217,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
   private let completions = NSButton(
     checkboxWithTitle: "Suggest completions while typing", target: nil, action: nil)
   private let autoPair = NSButton(
-    checkboxWithTitle: "Close brackets and dollar signs automatically", target: nil, action: nil)
+    checkboxWithTitle: "Pair brackets, quotes, and markup automatically", target: nil, action: nil)
   private let previews = NSButton(
     checkboxWithTitle: "Preview equations while editing them", target: nil, action: nil)
   private let writingTools = NSButton(
@@ -288,7 +288,9 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
     describe(
       completions,
       "Suggest Typst symbols and functions as you type in equations, or after # in text. Press ⌥⎋ to ask for suggestions any time.")
-    describe(autoPair, "Insert the closing $, ), ], or } when you type the opening one.")
+    describe(
+      autoPair,
+      "Typing $, (, [, {, or a backtick adds its closing partner, as do quotes inside code. With text selected, those characters and * or _ wrap the selection instead of replacing it.")
     describe(previews, "Show the rendered equation below an equation while you edit its source.")
     describe(writingTools, "Show Apple's Writing Tools in the Edit menu when they are available.")
     if #unavailable(macOS 15.2) {

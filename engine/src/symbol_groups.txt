@@ -1,0 +1,323 @@
+# Generated from codex 0.3.0 sym.txt by scripts/generate-symbol-groups.swift. Do not edit.
+== Delimiters
+paren
+brace
+bracket
+shell
+bag
+mustache
+bar
+fence
+chevron
+ceil
+floor
+corner
+== Punctuation
+amp
+ast
+at
+backslash
+co
+colon
+comma
+dagger
+dash
+underscore
+dot
+excl
+quest
+interrobang
+hash
+hyph
+numero
+percent
+permille
+permyriad
+pilcrow
+section
+semi
+slash
+dots
+tilde
+== Accents, quotes, and primes
+acute
+breve
+caret
+caron
+hat
+diaer
+grave
+macron
+quote
+prime
+== Arithmetic
+plus
+minus
+div
+times
+ratio
+== Relations
+eq
+gt
+lt
+approx
+prec
+succ
+equiv
+smt
+lat
+prop
+original
+image
+asymp
+== Set theory
+emptyset
+nothing
+without
+complement
+in
+subset
+supset
+union
+inter
+== Calculus
+infinity
+oo
+partial
+gradient
+nabla
+sum
+product
+integral
+laplace
+== Logic
+forall
+exists
+top
+bot
+not
+and
+or
+xor
+models
+forces
+therefore
+because
+qed
+== Function and category theory
+mapsto
+mapsfrom
+compose
+convolve
+multimap
+== Game theory
+tiny
+miny
+== Number theory
+divides
+== Algebra
+wreath
+== Geometry
+angle
+angzarr
+parallel
+perp
+== Astronomical
+earth
+jupiter
+mars
+mercury
+neptune
+saturn
+sun
+uranus
+venus
+== Miscellaneous technical
+diameter
+interleave
+join
+bowtie
+hourglass
+degree
+smash
+power
+smile
+frown
+== Currency
+afghani
+baht
+bitcoin
+cedi
+cent
+currency
+dollar
+dong
+dorome
+dram
+euro
+guarani
+hryvnia
+kip
+lari
+lira
+manat
+naira
+pataca
+peso
+pound
+riel
+riyal
+ruble
+rupee
+shekel
+som
+taka
+taman
+tenge
+togrog
+won
+yen
+yuan
+== Miscellaneous
+ballot
+checkmark
+crossmark
+floral
+refmark
+cc
+copyright
+copyleft
+trademark
+maltese
+suit
+== Music
+note
+rest
+natural
+flat
+sharp
+== Shapes
+bullet
+circle
+ellipse
+triangle
+square
+rect
+penta
+hexa
+diamond
+lozenge
+parallelogram
+star
+== Arrows, harpoons, and tacks
+arrow
+arrows
+arrowhead
+harpoon
+harpoons
+tack
+zero
+== Lowercase Greek
+alpha
+beta
+chi
+delta
+digamma
+epsilon
+eta
+gamma
+iota
+kappa
+lambda
+mu
+nu
+omega
+omicron
+phi
+pi
+psi
+rho
+sigma
+tau
+theta
+upsilon
+xi
+zeta
+== Uppercase Greek
+Alpha
+Beta
+Chi
+Delta
+Digamma
+Epsilon
+Eta
+Gamma
+Iota
+Kappa
+Lambda
+Mu
+Nu
+Omega
+Omicron
+Phi
+Pi
+Psi
+Rho
+Sigma
+Tau
+Theta
+Upsilon
+Xi
+Zeta
+== Lowercase Cyrillic
+sha
+== Uppercase Cyrillic
+Sha
+== Hebrew
+aleph
+beth
+gimel
+daleth
+== Double-struck
+AA
+BB
+CC
+DD
+EE
+FF
+GG
+HH
+II
+JJ
+KK
+LL
+MM
+NN
+OO
+PP
+QQ
+RR
+SS
+TT
+UU
+VV
+WW
+XX
+YY
+ZZ
+== Miscellaneous letter-likes
+angstrom
+ell
+pee
+planck
+Re
+Im
+dotless
+== Miscellany
+die
+errorbar
+== Keyboard labels
+spacebar
+gender
+== Control Pictures
+control

@@ -198,6 +198,21 @@ import Testing
     #expect(type("\"", in: "#text()", at: 6, inCode: true)! == ("#text(\"\")", 7))
   }
 
+  @Test func pairsBackticksAndWrapsSelections() {
+    #expect(type("`", in: "use ", at: 4)! == ("use ``", 5))
+    #expect(type("`", in: "$x$", at: 2, inCode: true) == nil)
+    func wrap(_ character: String, _ text: String, _ range: NSRange, inCode: Bool = false) -> String? {
+      AutoPair.edit(typing: character, text: text as NSString, selection: range, inCode: inCode)?
+        .applied(to: text)
+    }
+    #expect(wrap("*", "make bold", NSRange(location: 5, length: 4)) == "make *bold*")
+    #expect(wrap("_", "an idea", NSRange(location: 3, length: 4)) == "an _idea_")
+    #expect(wrap("$", "x^2 here", NSRange(location: 0, length: 3)) == "$x^2$ here")
+    #expect(wrap("\"", "say hi", NSRange(location: 4, length: 2)) == "say \"hi\"")
+    #expect(wrap("*", "$a b$", NSRange(location: 1, length: 1), inCode: true) == nil)
+    #expect(type("*", in: "a ", at: 2) == nil)
+  }
+
   @Test func leavesWordsAndEscapesAlone() {
     #expect(type("(", in: "word", at: 0) == nil)
     #expect(type("$", in: "costs 5", at: 7) == nil)

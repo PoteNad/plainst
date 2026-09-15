@@ -29,11 +29,13 @@ final class WritingLayoutManager: NSLayoutManager {
   weak var replacements: ReplacementSource?
 
   override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
-    super.drawBackground(forGlyphRange: glyphsToShow, at: origin)
+    // Decorations go underneath AppKit's background drawing, which includes the selection
+    // highlight; drawing them afterwards would hide selected text inside equation fields.
     nonisolated(unsafe) let manager = self
     MainActor.assumeIsolated {
       manager.replacements?.drawDecorations(forGlyphRange: glyphsToShow, at: origin)
     }
+    super.drawBackground(forGlyphRange: glyphsToShow, at: origin)
   }
 
   override func drawGlyphs(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {

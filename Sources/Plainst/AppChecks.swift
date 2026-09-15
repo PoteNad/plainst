@@ -105,7 +105,7 @@ enum AppChecks {
             pass("windows, tabs, views, equation rendering and saving new documents work")
 
             // Every catalogued symbol exists in Typst, and inserting symbols writes valid math.
-            let missing = SymbolCatalog.groups.flatMap(\.names).filter { SymbolCatalog.values[$0] == nil }
+            let missing = SymbolCatalog.common.filter { SymbolCatalog.values[$0] == nil }
             guard missing.isEmpty else { fail("unknown symbols in the catalog: \(missing)") }
             editor.loadText("Let  be x.")
             editor.textView.setSelectedRange(NSRange(location: 4, length: 0))
@@ -242,25 +242,24 @@ enum AppChecks {
         let editor = document.editor, let window = editor.window
       else { fail("expected an untitled document") }
       let view = editor.textView
-      // Mouse events only reach an active window, so this one check brings the app forward.
-      NSApp.activate(ignoringOtherApps: true)
+      // Events go straight to the text view rather than through the window server, so the
+      // check works in the background without taking focus from whoever is using the Mac.
       window.makeKeyAndOrderFront(nil)
+      window.makeFirstResponder(view)
 
       @MainActor func key(_ characters: String, code: UInt16 = 0) {
-        for event: NSEvent.EventType in [.keyDown, .keyUp] {
-          guard let e = NSEvent.keyEvent(
-            with: event, location: .zero, modifierFlags: [],
-            timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
-            context: nil, characters: characters, charactersIgnoringModifiers: characters,
-            isARepeat: false, keyCode: code)
-          else { fail("could not make a key event") }
-          NSApp.sendEvent(e)
-        }
+        guard let e = NSEvent.keyEvent(
+          with: .keyDown, location: .zero, modifierFlags: [],
+          timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+          context: nil, characters: characters, charactersIgnoringModifiers: characters,
+          isARepeat: false, keyCode: code)
+        else { fail("could not make a key event") }
+        view.keyDown(with: e)
       }
       @MainActor func type(_ text: String) { for c in text { key(String(c)) } }
       @MainActor func left() { key("\u{F702}", code: 123) }
       /// Clicks at a point in the text view's coordinates.
-      @MainActor func click(_ point: NSPoint, count: Int = 1, hold: Double = 0) {
+      @MainActor func click(_ point: NSPoint, count: Int = 1) {
         let location = view.convert(point, to: nil)
         let time = ProcessInfo.processInfo.systemUptime
         guard
@@ -273,13 +272,8 @@ enum AppChecks {
             windowNumber: window.windowNumber, context: nil, eventNumber: count, clickCount: count,
             pressure: 0)
         else { fail("could not make a mouse event") }
-        if hold > 0 {
-          // Release later, so AppKit tracks the press the way it does for a person.
-          DispatchQueue.main.asyncAfter(deadline: .now() + hold) { NSApp.postEvent(up, atStart: false) }
-        } else {
-          NSApp.postEvent(up, atStart: false)
-        }
-        NSApp.sendEvent(down)
+        NSApp.postEvent(up, atStart: false)
+        view.mouseDown(with: down)
       }
 
       // Typing between two dollar signs keeps the cursor inside the equation.
@@ -357,6 +351,45 @@ enum AppChecks {
                           fail("double-clicking a word in the equation selected \(view.selectedRange()), not \(word)")
                         }
                         pass("double-clicking a word in an equation's source selects it")
+
+                        // Dragging across the source field selects characters.
+                        let source = (editor.text as NSString).range(of: "x^2 + 10")
+                        let first = editor.layout.boundingRect(
+                          forGlyphRange: editor.layout.glyphRange(forCharacterRange: NSRange(location: source.location, length: 1), actualCharacterRange: nil),
+                          in: editor.container)
+                        let last = editor.layout.boundingRect(
+                          forGlyphRange: editor.layout.glyphRange(forCharacterRange: NSRange(location: NSMaxRange(source) - 1, length: 1), actualCharacterRange: nil),
+                          in: editor.container)
+                        let from = view.convert(NSPoint(x: origin.x + first.minX + 1, y: origin.y + first.midY), to: nil)
+                        let to = view.convert(NSPoint(x: origin.x + last.maxX - 1, y: origin.y + last.midY), to: nil)
+                        let time = ProcessInfo.processInfo.systemUptime
+                        let events: [(NSEvent.EventType, NSPoint)] = [(.leftMouseDragged, to), (.leftMouseUp, to)]
+                        for (index, (type, location)) in events.enumerated() {
+                          if let event = NSEvent.mouseEvent(
+                            with: type, location: location, modifierFlags: [], timestamp: time + Double(index + 1) * 0.05,
+                            windowNumber: window.windowNumber, context: nil, eventNumber: 9, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1)
+                          {
+                            NSApp.postEvent(event, atStart: false)
+                          }
+                        }
+                        if let down = NSEvent.mouseEvent(
+                          with: .leftMouseDown, location: from, modifierFlags: [], timestamp: time,
+                          windowNumber: window.windowNumber, context: nil, eventNumber: 9, clickCount: 1, pressure: 1)
+                        {
+                          view.mouseDown(with: down)
+                        }
+                        // The text view tracks the drag synchronously inside mouseDown.
+                        guard view.selectedRange() == source else {
+                          fail("dragging across the equation selected \(view.selectedRange()), not \(source)")
+                        }
+                        // Shift-arrow extends the selection inside the field too.
+                        view.setSelectedRange(NSRange(location: source.location, length: 0))
+                        view.moveRightAndModifySelection(nil)
+                        view.moveRightAndModifySelection(nil)
+                        guard view.selectedRange() == NSRange(location: source.location, length: 2) else {
+                          fail("Shift-Right selected \(view.selectedRange()) in the equation")
+                        }
+                        pass("dragging and Shift-arrows select characters in an equation's source")
 
                         // Dollar signs pair, Typst completions appear, and snippets fill in.
                         editor.loadText("")
@@ -511,6 +544,22 @@ enum AppChecks {
         window.makeKeyAndOrderFront(nil)
         controller.newWindowForTab(nil)
         window.makeKeyAndOrderFront(nil)
+      }
+      if let parts = environment["PLAINST_SELECT"]?.split(separator: ",").compactMap({ Int($0) }),
+        parts.count == 2
+      {
+        // Place the cursor first so the equation opens, then select inside it.
+        editor.textView.setSelectedRange(NSRange(location: parts[0], length: 0))
+        after(1) { editor.textView.setSelectedRange(NSRange(location: parts[0], length: parts[1])) }
+      }
+      if environment["PLAINST_TOGGLE_SYMBOLS"] == "1" {
+        after(0.5) {
+          editor.toggleSymbols(nil)
+          after(3) { print("symbols visible:", editor.symbolsVisible, editor.symbols.debugTemplateImages) }
+          if let category = environment["PLAINST_SYMBOL_CATEGORY"] {
+            after(1) { editor.symbols.showCategory(category) }
+          }
+        }
       }
       if environment["PLAINST_SETTINGS"] == "1" {
         NSApp.sendAction(Selector(("showSettings:")), to: nil, from: nil)

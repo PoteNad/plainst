@@ -63,35 +63,77 @@ pub fn complete_json(text: &str, cursor_utf16: usize, explicit: bool) -> String 
     out
 }
 
-/// Every symbol Typst knows, with its full name and character, as JSON `[[name, symbol], …]`.
-/// Deprecated names are left out.
-pub fn symbols_json() -> String {
-    let mut out = String::from("[");
-    let mut first = true;
-    for (name, binding) in codex::SYM.iter() {
-        if binding.deprecation.is_some() {
+/// Typst's own symbol categories, generated from codex by `scripts/generate-symbol-groups.swift`.
+const SYMBOL_GROUPS: &str = include_str!("symbol_groups.txt");
+
+/// Writes every non-deprecated variant of a symbol as `[name, value]` JSON pairs.
+fn push_variants(out: &mut String, name: &str, first: &mut bool) {
+    let Some(binding) = codex::SYM.get(name) else { return };
+    if binding.deprecation.is_some() {
+        return;
+    }
+    let codex::Def::Symbol(symbol) = binding.def else { return };
+    for (modifiers, value, deprecation) in symbol.variants() {
+        if deprecation.is_some() {
             continue;
         }
-        let codex::Def::Symbol(symbol) = binding.def else { continue };
-        for (modifiers, value, deprecation) in symbol.variants() {
-            if deprecation.is_some() {
-                continue;
-            }
-            let full = if modifiers.is_empty() {
-                name.to_string()
-            } else {
-                format!("{name}.{}", modifiers.as_str())
-            };
-            if !first {
-                out.push(',');
-            }
-            first = false;
-            out.push('[');
-            json_string(&mut out, &full);
+        let full = if modifiers.is_empty() {
+            name.to_string()
+        } else {
+            format!("{name}.{}", modifiers.as_str())
+        };
+        if !*first {
             out.push(',');
-            json_string(&mut out, value);
-            out.push(']');
         }
+        *first = false;
+        out.push('[');
+        json_string(out, &full);
+        out.push(',');
+        json_string(out, value);
+        out.push(']');
+    }
+}
+
+/// Every symbol Typst knows, grouped by Typst's categories, as JSON
+/// `[{"title": …, "symbols": [[name, value], …]}, …]`. Deprecated names are left out, and
+/// symbols missing from the categories file are collected under "Other".
+pub fn symbols_json() -> String {
+    let mut groups: Vec<(&str, Vec<&str>)> = Vec::new();
+    let mut listed = std::collections::HashSet::new();
+    for line in SYMBOL_GROUPS.lines() {
+        if let Some(title) = line.strip_prefix("== ") {
+            groups.push((title, Vec::new()));
+        } else if !line.is_empty() && !line.starts_with('#') {
+            if let Some((_, names)) = groups.last_mut() {
+                names.push(line);
+                listed.insert(line);
+            }
+        }
+    }
+    // Invisible characters are left out on purpose; anything else unlisted still appears.
+    let invisible = ["wj", "zwj", "zwnj", "zws", "lrm", "rlm", "space"];
+    let other: Vec<&str> = codex::SYM
+        .iter()
+        .map(|(name, _)| name)
+        .filter(|name| !listed.contains(name) && !invisible.contains(name))
+        .collect();
+    if !other.is_empty() {
+        groups.push(("Other", other));
+    }
+
+    let mut out = String::from("[");
+    for (index, (title, names)) in groups.iter().enumerate() {
+        if index > 0 {
+            out.push(',');
+        }
+        out.push_str("{\"title\":");
+        json_string(&mut out, title);
+        out.push_str(",\"symbols\":[");
+        let mut first = true;
+        for name in names {
+            push_variants(&mut out, name, &mut first);
+        }
+        out.push_str("]}");
     }
     out.push(']');
     out

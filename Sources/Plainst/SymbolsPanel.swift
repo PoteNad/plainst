@@ -3,90 +3,48 @@ import PlainstCore
 
 /// A browsable, searchable collection of Typst symbols and math structures.
 enum SymbolCatalog {
-  struct Group {
-    var title: String
-    var names: [String]
-  }
-
   /// Common math structures, inserted as snippets with placeholders.
   struct Template {
     var title: String
     var snippet: String
     /// Rendered with Typst for the button's image.
     var preview: String
+    /// Shown until the Typst rendering is ready.
+    var fallback: String
   }
 
-  static let groups: [Group] = [
-    Group(
-      title: "Greek",
-      names: [
-        "alpha", "beta", "gamma", "delta", "epsilon", "epsilon.alt", "zeta", "eta", "theta",
-        "theta.alt", "iota", "kappa", "lambda", "mu", "nu", "xi", "pi", "rho", "sigma", "tau",
-        "upsilon", "phi", "phi.alt", "chi", "psi", "omega", "Gamma", "Delta", "Theta", "Lambda",
-        "Xi", "Pi", "Sigma", "Upsilon", "Phi", "Psi", "Omega",
-      ]),
-    Group(
-      title: "Operators",
-      names: [
-        "plus", "minus", "plus.minus", "minus.plus", "times", "div", "dot.op", "ast.op", "star.op",
-        "compose", "plus.o", "times.o", "slash", "backslash", "without", "convolve",
-      ]),
-    Group(
-      title: "Relations",
-      names: [
-        "eq", "eq.not", "lt", "gt", "lt.eq", "gt.eq", "approx", "tilde.op", "equiv", "prop", "lt.double",
-        "gt.double", "prec", "succ", "colon.eq", "eq.def", "perp", "parallel",
-      ]),
-    Group(
-      title: "Arrows",
-      names: [
-        "arrow.r", "arrow.l", "arrow.t", "arrow.b", "arrow.l.r", "arrow.t.b", "arrow.r.double",
-        "arrow.l.double", "arrow.l.r.double", "arrow.r.bar", "arrow.r.long", "arrow.r.hook",
-        "arrow.r.squiggly", "arrow.tr", "arrow.br", "harpoon.rt", "arrows.rl",
-      ]),
-    Group(
-      title: "Sets and Logic",
-      names: [
-        "in", "in.not", "subset", "subset.eq", "supset", "supset.eq", "union", "inter", "nothing",
-        "forall", "exists", "exists.not", "and", "or", "not", "top", "bot", "therefore", "because",
-        "tack.r",
-      ]),
-    Group(
-      title: "Calculus and Big Operators",
-      names: [
-        "sum", "product", "integral", "integral.double", "integral.triple", "integral.cont",
-        "union.big", "inter.big", "partial", "nabla", "infinity", "prime", "degree",
-      ]),
-    Group(
-      title: "Letters and Dots",
-      names: [
-        "aleph", "ell", "planck", "RR", "ZZ", "QQ", "NN", "CC", "dots.h", "dots.h.c", "dots.v",
-        "dots.down", "angle", "triangle.stroked.t", "square.stroked", "circle.stroked",
-      ]),
+  static let templates: [Template] = [
+    Template(title: "Fraction", snippet: "frac(${a}, ${b})", preview: "$frac(a, b)$", fallback: "a⁄b"),
+    Template(title: "Square root", snippet: "sqrt(${x})", preview: "$sqrt(x)$", fallback: "√x"),
+    Template(title: "Root", snippet: "root(${n}, ${x})", preview: "$root(n, x)$", fallback: "ⁿ√x"),
+    Template(title: "Superscript", snippet: "${x}^${2}", preview: "$x^2$", fallback: "x²"),
+    Template(title: "Subscript", snippet: "${x}_${i}", preview: "$x_i$", fallback: "xᵢ"),
+    Template(title: "Sum with limits", snippet: "sum_(${i=1})^${n}", preview: "$sum_(i=1)^n$", fallback: "Σ"),
+    Template(title: "Integral with limits", snippet: "integral_${a}^${b}", preview: "$integral_a^b$", fallback: "∫"),
+    Template(title: "Limit", snippet: "lim_(${x -> 0})", preview: "$lim_(x -> 0)$", fallback: "lim"),
+    Template(title: "Vector", snippet: "vec(${a}, ${b})", preview: "$vec(a, b)$", fallback: "(a b)"),
+    Template(title: "Matrix", snippet: "mat(${a}, ${b}; ${c}, ${d})", preview: "$mat(a, b; c, d)$", fallback: "[⋯]"),
+    Template(title: "Cases", snippet: "cases(${a} \"if\" ${x}, ${b} \"otherwise\")", preview: "$cases(a, b)$", fallback: "{⋯"),
+    Template(title: "Binomial", snippet: "binom(${n}, ${k})", preview: "$binom(n, k)$", fallback: "(n k)"),
+    Template(title: "Absolute value", snippet: "abs(${x})", preview: "$abs(x)$", fallback: "|x|"),
+    Template(title: "Norm", snippet: "norm(${x})", preview: "$norm(x)$", fallback: "‖x‖"),
+    Template(title: "Hat", snippet: "hat(${x})", preview: "$hat(x)$", fallback: "x̂"),
+    Template(title: "Bar", snippet: "overline(${x})", preview: "$overline(x)$", fallback: "x̄"),
+    Template(title: "Vector arrow", snippet: "arrow(${x})", preview: "$arrow(x)$", fallback: "x⃗"),
+    Template(title: "Dot", snippet: "dot(${x})", preview: "$dot(x)$", fallback: "ẋ"),
+    Template(title: "Text in math", snippet: "\"${text}\"", preview: "$\"abc\"$", fallback: "abc"),
+    Template(title: "Blackboard bold", snippet: "bb(${R})", preview: "$bb(R)$", fallback: "ℝ"),
+    Template(title: "Calligraphic", snippet: "cal(${A})", preview: "$cal(A)$", fallback: "𝒜"),
   ]
 
-  static let templates: [Template] = [
-    Template(title: "Fraction", snippet: "frac(${a}, ${b})", preview: "$frac(a, b)$"),
-    Template(title: "Square root", snippet: "sqrt(${x})", preview: "$sqrt(x)$"),
-    Template(title: "Root", snippet: "root(${n}, ${x})", preview: "$root(n, x)$"),
-    Template(title: "Superscript", snippet: "${x}^${2}", preview: "$x^2$"),
-    Template(title: "Subscript", snippet: "${x}_${i}", preview: "$x_i$"),
-    Template(title: "Sum with limits", snippet: "sum_(${i=1})^${n}", preview: "$sum_(i=1)^n$"),
-    Template(title: "Integral with limits", snippet: "integral_${a}^${b}", preview: "$integral_a^b$"),
-    Template(title: "Limit", snippet: "lim_(${x -> 0})", preview: "$lim_(x -> 0)$"),
-    Template(title: "Vector", snippet: "vec(${a}, ${b})", preview: "$vec(a, b)$"),
-    Template(title: "Matrix", snippet: "mat(${a}, ${b}; ${c}, ${d})", preview: "$mat(a, b; c, d)$"),
-    Template(title: "Cases", snippet: "cases(${a} \"if\" ${x}, ${b} \"otherwise\")", preview: "$cases(a, b)$"),
-    Template(title: "Binomial", snippet: "binom(${n}, ${k})", preview: "$binom(n, k)$"),
-    Template(title: "Absolute value", snippet: "abs(${x})", preview: "$abs(x)$"),
-    Template(title: "Norm", snippet: "norm(${x})", preview: "$norm(x)$"),
-    Template(title: "Hat", snippet: "hat(${x})", preview: "$hat(x)$"),
-    Template(title: "Bar", snippet: "overline(${x})", preview: "$overline(x)$"),
-    Template(title: "Vector arrow", snippet: "arrow(${x})", preview: "$arrow(x)$"),
-    Template(title: "Dot", snippet: "dot(${x})", preview: "$dot(x)$"),
-    Template(title: "Text in math", snippet: "\"${text}\"", preview: "$\"abc\"$"),
-    Template(title: "Blackboard bold", snippet: "bb(${R})", preview: "$bb(R)$"),
-    Template(title: "Calligraphic", snippet: "cal(${A})", preview: "$cal(A)$"),
+  /// Symbols most documents need, shown before the full catalogue.
+  static let common = [
+    "alpha", "beta", "gamma", "delta", "epsilon", "theta", "lambda", "mu", "pi", "sigma", "phi",
+    "omega", "Gamma", "Delta", "Sigma", "Omega", "plus.minus", "times", "div", "dot.op", "eq.not",
+    "lt.eq", "gt.eq", "approx", "equiv", "prop", "in", "subset.eq", "union", "inter", "nothing",
+    "forall", "exists", "and", "or", "not", "arrow.r", "arrow.l", "arrow.l.r", "arrow.r.double",
+    "arrow.l.r.double", "arrow.r.bar", "sum", "product", "integral", "partial", "nabla", "infinity",
+    "RR", "ZZ", "QQ", "NN", "CC", "dots.h", "dots.h.c", "dots.v", "degree", "prime", "angle", "perp",
   ]
 
   static let values: [String: String] = Dictionary(
@@ -101,16 +59,19 @@ final class SymbolsViewController: NSViewController, NSSearchFieldDelegate {
   private let scroll = NSScrollView()
   private let stack = NSStackView()
   private let footer = NSTextField(labelWithString: "")
+  /// Categories the user has opened, which stay open while the inspector is in use.
+  private var expanded: Set<String> = []
+  private var templateButtons: [(SymbolButton, SymbolCatalog.Template)] = []
 
   override func loadView() {
     let root = NSView()
-    search.placeholderString = "Search symbols"
+    search.placeholderString = "Search all symbols"
     search.delegate = self
     search.sendsSearchStringImmediately = true
     search.setAccessibilityLabel("Search symbols")
     stack.orientation = .vertical
     stack.alignment = .leading
-    stack.spacing = 10
+    stack.spacing = 8
     stack.edgeInsets = NSEdgeInsets(top: 4, left: 12, bottom: 16, right: 12)
     let document = FlippedView()
     document.translatesAutoresizingMaskIntoConstraints = false
@@ -129,7 +90,7 @@ final class SymbolsViewController: NSViewController, NSSearchFieldDelegate {
     footer.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
     footer.textColor = .secondaryLabelColor
     footer.lineBreakMode = .byTruncatingTail
-    footer.stringValue = "Click a symbol to insert it."
+    footer.stringValue = "\(Engine.symbols.count) symbols. Click one to insert it."
     footer.toolTip = "Outside an equation, symbols are inserted between dollar signs."
     for view in [search, scroll, footer] {
       view.translatesAutoresizingMaskIntoConstraints = false
@@ -152,99 +113,179 @@ final class SymbolsViewController: NSViewController, NSSearchFieldDelegate {
     ])
     view = root
     rebuild()
-    NotificationCenter.default.addObserver(
-      self, selector: #selector(mathDidRender), name: MathImages.didRender, object: nil)
+  }
+
+  override func viewDidAppear() {
+    super.viewDidAppear()
+    // The window's resolution is known now, so render previews at the right scale.
+    refreshPreviews()
+  }
+
+  override func viewDidLayout() {
+    super.viewDidLayout()
+    if view.effectiveAppearance.name != previewAppearance { refreshPreviews() }
   }
 
   func focusSearch() { view.window?.makeFirstResponder(search) }
 
+  #if PLAINST_CHECKS
+    /// Opens a category and scrolls to it, for snapshots.
+    func showCategory(_ title: String) {
+      expanded.insert(title)
+      rebuild()
+      view.layoutSubtreeIfNeeded()
+      if let header = stack.arrangedSubviews.first(where: { $0.identifier?.rawValue == title }) {
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: max(0, header.frame.minY - 160)))
+      }
+    }
+  #endif
+
   func controlTextDidChange(_ notification: Notification) { rebuild() }
 
-  private var templateButtons: [(SymbolButton, SymbolCatalog.Template)] = []
+  var debugTemplateImages: String {
+    "\(templateButtons.filter { $0.0.image != nil }.count) of \(templateButtons.count) rendered"
+  }
 
   private func rebuild() {
     stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
     templateButtons = []
     let query = search.stringValue.trimmingCharacters(in: .whitespaces).lowercased()
-    if query.isEmpty {
-      addSection("Structures", SymbolCatalog.templates.map { template in button(for: template) })
-      for group in SymbolCatalog.groups {
-        addSection(group.title, group.names.compactMap { symbolButton($0) })
-      }
-    } else {
-      let templates = SymbolCatalog.templates.filter {
-        $0.title.lowercased().contains(query) || $0.snippet.lowercased().contains(query)
-      }
-      if !templates.isEmpty { addSection("Structures", templates.map { button(for: $0) }) }
-      let matches = Engine.symbols.filter { $0.name.lowercased().contains(query) }
-        .sorted { ($0.name.lowercased().hasPrefix(query) ? 0 : 1, $0.name.count) < ($1.name.lowercased().hasPrefix(query) ? 0 : 1, $1.name.count) }
-        .prefix(180)
-      let buttons = matches.compactMap { symbolButton($0.name) }
-      if buttons.isEmpty && templates.isEmpty {
-        let empty = NSTextField(labelWithString: "No symbols match “\(search.stringValue)”.")
-        empty.textColor = .secondaryLabelColor
-        stack.addArrangedSubview(empty)
-      } else if !buttons.isEmpty {
-        addSection("Symbols", buttons)
-      }
+    guard query.isEmpty else { return showResults(for: query) }
+
+    addHeading("Structures")
+    addGrid(SymbolCatalog.templates.map(templateButton))
+    addHeading("Common")
+    addGrid(SymbolCatalog.common.compactMap { name in
+      SymbolCatalog.values[name].map { symbolButton(TypstSymbol(name: name, value: $0)) }
+    })
+    addHeading("All Symbols")
+    for group in Engine.symbolGroups where !group.symbols.isEmpty {
+      addCategory(group)
     }
+    refreshPreviews()
   }
 
-  private func addSection(_ title: String, _ buttons: [SymbolButton]) {
-    guard !buttons.isEmpty else { return }
+  private func showResults(for query: String) {
+    let templates = SymbolCatalog.templates.filter {
+      $0.title.lowercased().contains(query) || $0.snippet.lowercased().contains(query)
+    }
+    if !templates.isEmpty {
+      addHeading("Structures")
+      addGrid(templates.map(templateButton))
+    }
+    // Names that start with the query come first, then shorter names.
+    let matches = Engine.symbols.filter { $0.name.lowercased().contains(query) || $0.value == query }
+      .sorted {
+        let a = ($0.name.lowercased().hasPrefix(query) ? 0 : 1, $0.name.count)
+        let b = ($1.name.lowercased().hasPrefix(query) ? 0 : 1, $1.name.count)
+        return a < b
+      }
+    if !matches.isEmpty {
+      addHeading(matches.count == 1 ? "1 Symbol" : "\(matches.count) Symbols")
+      addGrid(matches.prefix(400).map(symbolButton))
+    }
+    if templates.isEmpty && matches.isEmpty {
+      let empty = NSTextField(labelWithString: "No symbols match “\(search.stringValue)”.")
+      empty.textColor = .secondaryLabelColor
+      stack.addArrangedSubview(empty)
+    }
+    refreshPreviews()
+  }
+
+  private func addHeading(_ title: String) {
     let heading = NSTextField(labelWithString: title)
     heading.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
     heading.textColor = .labelColor
+    if let last = stack.arrangedSubviews.last { stack.setCustomSpacing(14, after: last) }
     stack.addArrangedSubview(heading)
+    stack.setCustomSpacing(4, after: heading)
+  }
+
+  /// A category header that shows or hides its symbols, built only when first opened.
+  private func addCategory(_ group: SymbolGroup) {
+    let header = NSButton(title: "", target: self, action: #selector(toggleCategory(_:)))
+    header.isBordered = false
+    header.imagePosition = .imageLeading
+    header.alignment = .left
+    header.identifier = NSUserInterfaceItemIdentifier(group.title)
+    header.setAccessibilityLabel("\(group.title), \(group.symbols.count) symbols")
+    let isOpen = expanded.contains(group.title)
+    header.image = NSImage(
+      systemSymbolName: isOpen ? "chevron.down" : "chevron.right", accessibilityDescription: nil)?
+      .withSymbolConfiguration(.init(pointSize: 9, weight: .semibold))
+    header.contentTintColor = .secondaryLabelColor
+    header.attributedTitle = NSAttributedString(
+      string: " \(group.title)  \(group.symbols.count)",
+      attributes: [.font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize), .foregroundColor: NSColor.labelColor])
+    stack.addArrangedSubview(header)
+    if isOpen {
+      stack.setCustomSpacing(4, after: header)
+      addGrid(group.symbols.map(symbolButton))
+    }
+  }
+
+  @objc private func toggleCategory(_ sender: NSButton) {
+    guard let title = sender.identifier?.rawValue else { return }
+    if expanded.contains(title) { expanded.remove(title) } else { expanded.insert(title) }
+    let offset = scroll.contentView.bounds.origin
+    rebuild()
+    scroll.contentView.scroll(to: offset)
+  }
+
+  private func addGrid(_ buttons: [SymbolButton]) {
+    guard !buttons.isEmpty else { return }
     // Structures are wider than single symbols, so they get larger cells.
     let template = buttons.first?.isTemplate == true
     let grid = SymbolGrid(
       buttons: buttons,
-      cell: NSSize(width: SymbolButton.side * (template ? 2 : 1) + (template ? 3 : 0), height: SymbolButton.side + (template ? 8 : 0)))
+      cell: NSSize(
+        width: template ? SymbolButton.side * 2 + 3 : SymbolButton.side,
+        height: template ? SymbolButton.side + 8 : SymbolButton.side))
     stack.addArrangedSubview(grid)
     grid.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -24).isActive = true
-    stack.setCustomSpacing(4, after: heading)
   }
 
-  private func symbolButton(_ name: String) -> SymbolButton? {
-    guard let value = SymbolCatalog.values[name] else { return nil }
+  private func symbolButton(_ symbol: TypstSymbol) -> SymbolButton {
     let button = SymbolButton(target: self, action: #selector(insertSymbol(_:)))
-    button.code = name
-    button.title = value
+    button.code = symbol.name
+    button.title = symbol.value
     button.font = NSFont(name: "NewCMMath-Regular", size: 19) ?? .systemFont(ofSize: 17)
-    button.toolTip = name
-    button.setAccessibilityLabel("\(name), \(value)")
+    button.toolTip = symbol.name
+    button.setAccessibilityLabel("\(symbol.name), \(symbol.value)")
     return button
   }
 
-  private func button(for template: SymbolCatalog.Template) -> SymbolButton {
+  private func templateButton(_ template: SymbolCatalog.Template) -> SymbolButton {
     let button = SymbolButton(target: self, action: #selector(insertSymbol(_:)), template: true)
     button.code = template.snippet
+    button.title = template.fallback
+    button.font = NSFont(name: "NewCMMath-Regular", size: 15) ?? .systemFont(ofSize: 13)
     button.toolTip = "\(template.title): \(ExpandedSnippet(template.snippet).text)"
     button.setAccessibilityLabel(template.title)
     templateButtons.append((button, template))
-    updateImage(button, template)
     return button
   }
 
-  private func updateImage(_ button: SymbolButton, _ template: SymbolCatalog.Template) {
-    let appearance = view.effectiveAppearance
-    let key = MathKey(
-      source: template.preview, block: false, emSize: 1500,
-      backingScale: Int(((view.window?.backingScaleFactor ?? 2) * 100).rounded()),
-      color: MathImages.packedColor(.labelColor, appearance: appearance))
-    if case .rendered(let image, _, _) = MathImages.shared.request(key) {
-      button.image = image
-      button.title = ""
-      button.imageScaling = .scaleProportionallyDown
-    } else {
-      button.title = template.title.prefix(1).description
-    }
-  }
+  private var previewAppearance: NSAppearance.Name?
 
-  @objc private func mathDidRender(_ notification: Notification) {
-    for (button, template) in templateButtons where button.image == nil {
-      updateImage(button, template)
+  /// Renders each structure with Typst and swaps the image in when it is ready.
+  private func refreshPreviews() {
+    guard isViewLoaded else { return }
+    let appearance = view.effectiveAppearance
+    previewAppearance = appearance.name
+    let scale = view.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+    let color = MathImages.packedColor(.labelColor, appearance: appearance)
+    for (button, template) in templateButtons {
+      let key = MathKey(
+        source: template.preview, block: false, emSize: 1800,
+        backingScale: Int((scale * 100).rounded()), color: color)
+      let apply: (MathImages.Entry) -> Void = { [weak button] entry in
+        guard let button, case .rendered(let image, _, _) = entry else { return }
+        button.image = image
+        button.imagePosition = .imageOnly
+        button.imageScaling = .scaleProportionallyDown
+      }
+      if let entry = MathImages.shared.request(key, completion: apply) { apply(entry) }
     }
   }
 
@@ -317,6 +358,5 @@ final class SymbolButton: NSButton {
     bezelStyle = .smallSquare
     isBordered = true
     showsBorderOnlyWhileMouseInside = true
-    if template { imagePosition = .imageOnly }
   }
 }

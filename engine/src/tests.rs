@@ -106,4 +106,15 @@ fn lists_symbols() {
     let json = symbols_json();
     assert!(json.contains("[\"alpha\",\"α\"]"), "{}", &json[..200]);
     assert!(json.contains("[\"arrow.r\",\"→\"]"));
+    assert!(json.contains("{\"title\":\"Lowercase Greek\""));
+}
+
+#[test]
+fn symbol_groups_cover_every_symbol() {
+    // If codex adds symbols, regenerate engine/src/symbol_groups.txt so they get a real category.
+    assert!(!symbols_json().contains("{\"title\":\"Other\""), "run scripts/generate-symbol-groups.swift");
+    let listed = include_str!("symbol_groups.txt");
+    for line in listed.lines().filter(|l| !l.starts_with('#') && !l.starts_with("==") && !l.is_empty()) {
+        assert!(codex::SYM.get(line).is_some(), "unknown symbol {line} in symbol_groups.txt");
+    }
 }

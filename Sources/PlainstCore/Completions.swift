@@ -32,6 +32,16 @@ public struct CompletionList: Equatable, Sendable {
 public struct TypstSymbol: Equatable, Hashable, Sendable {
   public var name: String
   public var value: String
+
+  public init(name: String, value: String) {
+    self.name = name
+    self.value = value
+  }
+}
+
+public struct SymbolGroup: Equatable, Sendable {
+  public var title: String
+  public var symbols: [TypstSymbol]
 }
 
 /// Text ready to insert from a completion snippet, with the placeholders to visit in order.
@@ -72,7 +82,11 @@ public struct ExpandedSnippet: Equatable, Sendable {
 
 /// Automatic closing of brackets, quotes and dollar signs.
 public enum AutoPair {
-  static let pairs: [Character: Character] = ["(": ")", "[": "]", "{": "}", "$": "$", "\"": "\""]
+  static let pairs: [Character: Character] = [
+    "(": ")", "[": "]", "{": "}", "$": "$", "\"": "\"", "`": "`",
+  ]
+  /// Markup that only wraps a selection; typing it alone inserts just the character.
+  static let wrappers: [Character: Character] = ["*": "*", "_": "_"]
 
   /// The edit for typing `character` at an empty selection, or nil to insert it normally.
   ///
@@ -86,8 +100,10 @@ public enum AutoPair {
     let previous: unichar? = location > 0 ? text.character(at: location - 1) : nil
     let nextCharacter = next.flatMap { UnicodeScalar($0) }.map { Character($0) }
 
-    // Wrap a selection in a pair.
-    if selection.length > 0, let close = pairs[typed], typed != "\"" || inCode {
+    // Wrap a selection: brackets, quotes and dollar signs anywhere; emphasis markup in text.
+    if selection.length > 0, let close = pairs[typed] ?? (inCode ? nil : wrappers[typed]),
+      typed != "`" || !inCode
+    {
       let inner = text.substring(with: selection)
       return TextEdit(
         range: selection, replacement: String(typed) + inner + String(close),
@@ -96,14 +112,16 @@ public enum AutoPair {
     guard selection.length == 0 else { return nil }
 
     // Step over a closing character that was inserted automatically.
-    if let nextCharacter, nextCharacter == typed, [")", "]", "}", "$", "\""].contains(typed) {
+    if let nextCharacter, nextCharacter == typed, [")", "]", "}", "$", "\"", "`"].contains(typed) {
       return TextEdit(
         range: NSRange(location: location, length: 0), replacement: "",
         selection: NSRange(location: location + 1, length: 0))
     }
 
     guard let close = pairs[typed] else { return nil }
+    // Quotes pair in code, where they start strings; backticks pair in text, where they start raw text.
     if typed == "\"" && !inCode { return nil }
+    if typed == "`" && inCode { return nil }
     // Escaped characters stay literal.
     if previous == 0x5C { return nil }
     // Only pair before whitespace, punctuation, or the end of the line.

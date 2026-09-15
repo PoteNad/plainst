@@ -235,12 +235,26 @@ public enum Engine {
       })
   }
 
-  /// Every symbol Typst knows, by full name, such as `arrow.r.double`.
-  public static let symbols: [TypstSymbol] = {
+  private struct RawGroup: Decodable {
+    var title: String
+    var symbols: [[String]]
+  }
+
+  /// Every symbol Typst knows, in Typst's own categories, including each modifier variant.
+  public static let symbolGroups: [SymbolGroup] = {
     let data = call("") { _, _ in plainst_symbols() }
-    guard let raw = try? JSONDecoder().decode([[String]].self, from: data) else { return [] }
-    return raw.compactMap { $0.count == 2 ? TypstSymbol(name: $0[0], value: $0[1]) : nil }
+    guard let raw = try? JSONDecoder().decode([RawGroup].self, from: data) else { return [] }
+    return raw.map { group in
+      SymbolGroup(
+        title: group.title,
+        symbols: group.symbols.compactMap {
+          $0.count == 2 ? TypstSymbol(name: $0[0], value: $0[1]) : nil
+        })
+    }
   }()
+
+  /// Every symbol Typst knows, by full name, such as `arrow.r.double`.
+  public static let symbols: [TypstSymbol] = symbolGroups.flatMap(\.symbols)
 
   /// Loads fonts and the standard library so the first render is fast.
   public static func warmUp() { plainst_warm_up() }
