@@ -7,6 +7,8 @@ export PLAINST_NO_SYSTEM_FONTS=1
 . scripts/toolchain.sh
 
 cargo test --locked --manifest-path engine/Cargo.toml
+# The third-party notices must list every crate the engine links.
+swift scripts/generate-notices.swift --check
 PLAINST_CHECKS=1 ./scripts/build.sh
 # Command Line Tools installs don't always find Swift Testing's macros on their own.
 PLUGINS="$(dirname "$(xcrun --find swift)")/../lib/swift/host/plugins/testing"

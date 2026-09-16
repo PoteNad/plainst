@@ -140,6 +140,14 @@ enum AppChecks {
               fail("inserting symbols and structures produced \(editor.text.debugDescription)")
             }
             pass("the symbol catalog is valid and inserting symbols and structures writes valid Typst")
+
+            // The app bundle carries the third-party notices and shows them in Help ▸ Acknowledgments.
+            let notices = AcknowledgmentsWindowController.notices
+            let shown = AcknowledgmentsWindowController.render(notices).string
+            guard ["typst-assets 0.15.1", "Apache License", "SIL Open Font License", "Foxit", "Used by typst 0.15.1"]
+              .allSatisfy(notices.contains), !shown.contains("```"), shown.count > 100_000
+            else { fail("the app should include complete third-party notices (\(notices.count) characters)") }
+            pass("the third-party notices ship in the app and render for Help ▸ Acknowledgments")
             navigationCheck(editor)
           }
         }
@@ -829,6 +837,9 @@ enum AppChecks {
             after(1) { editor.symbols.showCategory(category) }
           }
         }
+      }
+      if environment["PLAINST_ACKNOWLEDGMENTS"] == "1" {
+        after(0.5) { (NSApp.delegate as? AppDelegate)?.showAcknowledgments(nil) }
       }
       if environment["PLAINST_SETTINGS"] == "1" {
         NSApp.sendAction(Selector(("showSettings:")), to: nil, from: nil)

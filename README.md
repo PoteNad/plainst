@@ -69,4 +69,4 @@ Commands such as `toggle(_:actionName:)`, `insertEquation(block:)`, `insertMath(
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Plainst includes the Typst compiler and Typst's default fonts under their own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+MIT — see [LICENSE](LICENSE). Plainst includes the Typst compiler, the Rust crates it depends on, and Typst's bundled fonts, each under its own license; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), which the app also shows in Help ▸ Acknowledgments. After changing the engine's dependencies, run `swift scripts/generate-notices.swift` to update it.

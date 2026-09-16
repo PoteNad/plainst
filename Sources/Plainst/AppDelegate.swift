@@ -5,6 +5,7 @@ import PlainstEditor
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
   private lazy var settingsController = SettingsWindowController()
+  private lazy var acknowledgmentsController = AcknowledgmentsWindowController()
   private let recentMenu = NSMenu(title: "Open Recent")
   private var writingToolsItems: [NSMenuItem] = []
 
@@ -212,6 +213,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     help.addItem(.separator())
     add(help, "Typst Documentation", #selector(openTypstDocs(_:)), target: self)
     add(help, "Plainst on GitHub", #selector(openGitHub(_:)), target: self)
+    help.addItem(.separator())
+    add(help, "Acknowledgments", #selector(showAcknowledgments(_:)), target: self)
     NSApp.helpMenu = help
   }
 
@@ -245,12 +248,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     NSApp.orderFrontStandardAboutPanel(options: [
       .version: "",
       .credits: NSAttributedString(
-        string: "A small, native Typst editor for prose and math.\nTypesetting by the Typst compiler (Apache-2.0).",
+        string:
+          "A small, native Typst editor for prose and math.\nTypesetting by the Typst compiler (Apache-2.0).\nThird-party licenses are in Help ▸ Acknowledgments.",
         attributes: [.font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize), .foregroundColor: NSColor.secondaryLabelColor])
     ])
   }
 
   @objc private func showSettings(_ sender: Any?) { settingsController.show() }
+
+  @objc func showAcknowledgments(_ sender: Any?) { acknowledgmentsController.show() }
 
   @objc private func preferencesDidChange(_ notification: Notification) { updateWritingToolsItem() }
 
