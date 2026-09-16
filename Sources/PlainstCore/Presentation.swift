@@ -208,6 +208,11 @@ public struct Presentation: Equatable, Sendable {
 
       case .link:
         add(.link, range)
+      case .hyperlink:
+        // `#link("url")[text]` reads as its text; the call shows while the cursor is in it.
+        add(.link, element.content ?? range)
+        element.markers.forEach { add(.marker, $0) }
+        if writing && !isActive(range) { element.markers.forEach(hide) }
       case .label:
         add(.label, range)
       case .ref:

@@ -56,7 +56,7 @@ fn elements(text: &str) -> Vec<Element> {
     walker.elements
 }
 
-const KINDS: [&str; 16] = [
+const KINDS: [&str; 17] = [
     "heading",
     "strong",
     "emph",
@@ -73,6 +73,7 @@ const KINDS: [&str; 16] = [
     "term",
     "label",
     "ref",
+    "hyperlink",
 ];
 const SHORTHANDS: [&str; 4] = ["\u{2013}", "\u{2014}", "\u{2026}", "\u{00a0}"];
 
@@ -184,6 +185,15 @@ impl Walker<'_> {
                 | SyntaxKind::BlockComment => {}
                 _ => enum_counter = 0,
             }
+            if child.kind() == SyntaxKind::Hash
+                && children
+                    .get(index + 1)
+                    .is_some_and(|next| self.hyperlink(next, start, start + child.len()))
+            {
+                cursor += children[index + 1].len();
+                index += 2;
+                continue;
+            }
             if child.kind() == SyntaxKind::Hash {
                 // Embedded code: the hash and the expression after it.
                 let mut end = cursor;
@@ -294,6 +304,69 @@ impl Walker<'_> {
         }
         element.markers.push((self.u(offset), self.u(marker_end)));
         self.elements.push(element);
+    }
+
+    /// A `#link("url")` or `#link("url")[text]` call, shown as its text with the rest hidden
+    /// while writing. `hash` is where the `#` starts and `offset` where the call starts.
+    /// Returns false, recording nothing, for any other embedded code.
+    fn hyperlink(&mut self, node: &SyntaxNode, hash: usize, offset: usize) -> bool {
+        if node.kind() != SyntaxKind::FuncCall {
+            return false;
+        }
+        let children: Vec<&SyntaxNode> = node.children().collect();
+        let [callee, args] = children.as_slice() else {
+            return false;
+        };
+        if callee.kind() != SyntaxKind::Ident || callee.leaf_text() != "link" || args.kind() != SyntaxKind::Args {
+            return false;
+        }
+        // The arguments must be exactly a string and, optionally, one content block.
+        let mut cursor = offset + callee.len();
+        let mut url: Option<(usize, usize)> = None;
+        let mut body: Option<(usize, &SyntaxNode)> = None;
+        for arg in args.children() {
+            let start = cursor;
+            cursor += arg.len();
+            match arg.kind() {
+                SyntaxKind::LeftParen | SyntaxKind::RightParen | SyntaxKind::Space => {}
+                SyntaxKind::Str if url.is_none() && body.is_none() => url = Some((start, cursor)),
+                SyntaxKind::ContentBlock if url.is_some() && body.is_none() => body = Some((start, arg)),
+                _ => return false,
+            }
+        }
+        let Some((url_start, url_end)) = url else {
+            return false;
+        };
+        let end = offset + node.len();
+        let mut element = Element::new("hyperlink", self.u(hash), self.u(end));
+        match body {
+            Some((block_start, block)) => {
+                let block_end = block_start + block.len();
+                let closes = block.children().last().is_some_and(|c| c.kind() == SyntaxKind::RightBracket);
+                element.markers.push((self.u(hash), self.u(block_start + 1)));
+                if closes {
+                    element.markers.push((self.u(block_end - 1), self.u(block_end)));
+                }
+                let inner_end = if closes { block_end - 1 } else { block_end };
+                element.content = Some((self.u(block_start + 1), self.u(inner_end)));
+                self.elements.push(element);
+                let mut position = block_start;
+                for child in block.children() {
+                    if child.kind() == SyntaxKind::Markup {
+                        self.markup(child, position);
+                    }
+                    position += child.len();
+                }
+            }
+            None => {
+                // Without text, Typst shows the address itself.
+                element.markers.push((self.u(hash), self.u(url_start + 1)));
+                element.markers.push((self.u(url_end - 1), self.u(end)));
+                element.content = Some((self.u(url_start + 1), self.u(url_end - 1)));
+                self.elements.push(element);
+            }
+        }
+        true
     }
 
     fn delimited(&mut self, node: &SyntaxNode, offset: usize, kind: &'static str) {

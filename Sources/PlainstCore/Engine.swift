@@ -6,7 +6,7 @@ import Foundation
 public struct OutlineElement: Equatable, Sendable {
   public enum Kind: String, Sendable, Decodable {
     case heading, strong, emph, raw, link, code, comment, linebreak, escape, shorthand, math
-    case list, `enum`, term, label, ref
+    case list, `enum`, term, label, ref, hyperlink
   }
 
   public var kind: Kind
@@ -161,7 +161,7 @@ public enum Engine {
   /// Element kinds in the order the engine numbers them.
   private static let kinds: [OutlineElement.Kind] = [
     .heading, .strong, .emph, .raw, .link, .code, .comment, .linebreak, .escape, .shorthand,
-    .math, .list, .enum, .term, .label, .ref,
+    .math, .list, .enum, .term, .label, .ref, .hyperlink,
   ]
   private static let shorthands = ["\u{2013}", "\u{2014}", "\u{2026}", "\u{00A0}"]
 

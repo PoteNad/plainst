@@ -22,6 +22,8 @@ enum PreferenceKey {
   static let tabWidth = "tabWidth"
   static let indentGuides = "indentGuides"
   static let textWidth = "textWidth"
+  /// Whether the status bar counts words or characters.
+  static let statusCount = "statusCount"
 }
 
 enum AppAppearance: String, CaseIterable {

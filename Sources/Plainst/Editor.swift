@@ -16,6 +16,8 @@ final class Editor: NSWindowController, NSMenuItemValidation, NSWindowDelegate, 
   var zoomPercent: Int { typst.zoomPercent }
   private let position = NSTextField(labelWithString: "")
   private let details = NSTextField(labelWithString: "")
+  /// The word or character count; clicking it chooses which.
+  private let count = NSButton(title: "", target: nil, action: nil)
   private let problems = NSButton(title: "", target: nil, action: nil)
   private let statusBar = NSVisualEffectView()
   private lazy var statusHeight = statusBar.heightAnchor.constraint(equalToConstant: 24)
@@ -66,6 +68,11 @@ final class Editor: NSWindowController, NSMenuItemValidation, NSWindowDelegate, 
       label.lineBreakMode = .byTruncatingTail
     }
     details.alignment = .right
+    count.isBordered = false
+    count.target = self
+    count.action = #selector(chooseCount(_:))
+    count.toolTip = "Choose whether to count words or characters"
+    count.setAccessibilityLabel("Count")
     problems.isBordered = false
     problems.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
     problems.target = self
@@ -114,8 +121,9 @@ final class Editor: NSWindowController, NSMenuItemValidation, NSWindowDelegate, 
     root.addSubview(statusBar)
     statusBar.addSubview(position)
     statusBar.addSubview(problems)
+    statusBar.addSubview(count)
     statusBar.addSubview(details)
-    for view in [scroll, statusBar, position, details, problems] {
+    for view in [scroll, statusBar, position, details, problems, count] {
       view.translatesAutoresizingMaskIntoConstraints = false
     }
     NSLayoutConstraint.activate([
@@ -131,7 +139,9 @@ final class Editor: NSWindowController, NSMenuItemValidation, NSWindowDelegate, 
       position.centerYAnchor.constraint(equalTo: statusBar.centerYAnchor),
       problems.leadingAnchor.constraint(equalTo: position.trailingAnchor, constant: 14),
       problems.centerYAnchor.constraint(equalTo: statusBar.centerYAnchor),
-      details.leadingAnchor.constraint(greaterThanOrEqualTo: problems.trailingAnchor, constant: 12),
+      count.leadingAnchor.constraint(greaterThanOrEqualTo: problems.trailingAnchor, constant: 12),
+      count.centerYAnchor.constraint(equalTo: statusBar.centerYAnchor),
+      details.leadingAnchor.constraint(equalTo: count.trailingAnchor, constant: 10),
       details.trailingAnchor.constraint(equalTo: statusBar.trailingAnchor, constant: -8),
       details.centerYAnchor.constraint(equalTo: statusBar.centerYAnchor),
     ])
@@ -278,19 +288,56 @@ final class Editor: NSWindowController, NSMenuItemValidation, NSWindowDelegate, 
       problems.isHidden = true
     }
     problems.toolTip = diagnostics.first.map(\.message)
+    count.attributedTitle = statusTitle(countText(for: selection), color: .secondaryLabelColor)
     var parts: [String] = []
-    let wordCount = typst.wordCount
     let pages = typst.pageCount
-    parts.append("\(wordCount) \(wordCount == 1 ? "word" : "words")")
     if errors == 0, typst.lastCompiledText != nil {
       parts.append("\(pages) \(pages == 1 ? "page" : "pages")")
     }
     if let file = note?.file {
-      if file.lineEnding != .lf { parts.append(file.lineEnding.displayName) }
+      // Like PoteNad, mixed line endings say so instead of naming one style.
+      if file.hasMixedLineEndings {
+        parts.append("Mixed")
+      } else if file.lineEnding != .lf {
+        parts.append(file.lineEnding.displayName)
+      }
       if file.encoding != .utf8 { parts.append(file.encoding.displayName) }
     }
     parts.append("\(zoomPercent)%")
     details.stringValue = parts.joined(separator: "   ")
+  }
+
+  /// "368 words", or "12 of 368 words" while text is selected; characters when chosen instead.
+  func countText(for selection: NSRange) -> String {
+    let characters = UserDefaults.standard.string(forKey: PreferenceKey.statusCount) == "characters"
+    let total = characters ? typst.characterCount : typst.wordCount
+    let unit = characters ? (total == 1 ? "character" : "characters") : (total == 1 ? "word" : "words")
+    let format = { (value: Int) in value.formatted() }
+    guard selection.length > 0, NSMaxRange(selection) <= typst.textLength else {
+      return "\(format(total)) \(unit)"
+    }
+    let selected = typst.string.substring(with: selection)
+    let part = characters ? selected.count : Formatting.wordCount(selected)
+    return "\(format(part)) of \(format(total)) \(characters ? "characters" : "words")"
+  }
+
+  @objc private func chooseCount(_ sender: NSButton) {
+    let characters = UserDefaults.standard.string(forKey: PreferenceKey.statusCount) == "characters"
+    let menu = NSMenu()
+    for (title, value) in [("Words", "words"), ("Characters", "characters")] {
+      let item = NSMenuItem(title: title, action: #selector(setCount(_:)), keyEquivalent: "")
+      item.target = self
+      item.representedObject = value
+      item.state = (value == "characters") == characters ? .on : .off
+      menu.addItem(item)
+    }
+    menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height + 4), in: sender)
+  }
+
+  @objc private func setCount(_ sender: NSMenuItem) {
+    UserDefaults.standard.set(sender.representedObject as? String, forKey: PreferenceKey.statusCount)
+    // Every window shows the same kind of count.
+    NotificationCenter.default.post(name: .editorDefaultsDidChange, object: nil)
   }
 
   private func statusTitle(_ string: String, color: NSColor) -> NSAttributedString {
@@ -614,6 +661,10 @@ final class Editor: NSWindowController, NSMenuItemValidation, NSWindowDelegate, 
     }
   }
 
+  @objc func foldSection(_ sender: Any?) { typst.foldCurrentSection() }
+  @objc func unfoldSection(_ sender: Any?) { typst.unfoldCurrentSection() }
+  @objc func unfoldAll(_ sender: Any?) { typst.unfoldAll() }
+
   @objc func increaseIndent(_ sender: Any?) { typst.indent(outdent: false) }
   @objc func decreaseIndent(_ sender: Any?) { typst.indent(outdent: true) }
 
@@ -666,6 +717,10 @@ final class Editor: NSWindowController, NSMenuItemValidation, NSWindowDelegate, 
       menuItem.state = mode == .writing ? .on : .off
     case #selector(showSource(_:)):
       menuItem.state = mode == .source ? .on : .off
+    case #selector(unfoldAll(_:)):
+      return !typst.foldedHeadingLocations.isEmpty
+    case #selector(foldSection(_:)):
+      return typst.elements.contains { $0.kind == .heading }
     case #selector(toggleStatus(_:)):
       menuItem.state = statusVisible ? .on : .off
     case #selector(toggleSymbols(_:)):

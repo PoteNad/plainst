@@ -92,6 +92,11 @@ extension Array where Element == Int {
 public final class TypstTextView: NSTextView {
   weak var editor: TypstEditor?
 
+  override public func drawBackground(in rect: NSRect) {
+    super.drawBackground(in: rect)
+    editor?.drawFoldControls(in: rect)
+  }
+
   override public func magnify(with event: NSEvent) {
     guard let editor else { return super.magnify(with: event) }
     editor.setZoom(editor.zoomPercent + Int((event.magnification * 100).rounded()))
@@ -121,6 +126,10 @@ public final class TypstTextView: NSTextView {
 
   override public func mouseDown(with event: NSEvent) {
     let point = convert(event.locationInWindow, from: nil)
+    if let editor, event.clickCount == 1, editor.handleFoldClick(at: point) { return }
+    if let editor, event.modifierFlags.contains(.command), event.clickCount == 1, editor.openLink(at: point) {
+      return
+    }
     if let editor, editor.handleClick(at: point, event: event) { return }
     let belowText = isBelowText(point)
     editor?.isTrackingMouse = true
@@ -166,16 +175,38 @@ public final class TypstTextView: NSTextView {
 
   override public func readSelection(from pboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
     // Paste only text, normalising line endings like the file loader does.
-    guard let value = pboard.string(forType: .string) else { return false }
     editor?.assistant.isSuspended = true
     defer { editor?.assistant.isSuspended = false }
+    let selection = selectedRange()
+    // Formatted text becomes Typst markup, except inside equations and code. Edit ▸ Paste and
+    // Match Style reads only the plain text.
+    if let editor, type == .html || type == .rtf, !editor.assistant.isInCode(selection.location),
+      let data = pboard.data(forType: type),
+      let formatted = type == .html
+        ? NSAttributedString(html: data, documentAttributes: nil)
+        : NSAttributedString(rtf: data, documentAttributes: nil),
+      let markup = TypstPaste.markup(from: formatted, indent: editor.configuration.tabWidth)
+    {
+      insertText(markup, replacementRange: selection)
+      return true
+    }
+    guard let value = pboard.string(forType: .string) else { return false }
+    // An address pasted over selected text links that text.
+    if let editor,
+      let edit = Links.pasteEdit(
+        pasting: value, text: editor.string, selection: selection,
+        inCode: editor.assistant.isInCode(selection.location))
+    {
+      editor.apply(edit, actionName: "Paste Link")
+      return true
+    }
     insertText(
       value.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n"),
-      replacementRange: selectedRange())
+      replacementRange: selection)
     return true
   }
 
-  override public var readablePasteboardTypes: [NSPasteboard.PasteboardType] { [.string] }
+  override public var readablePasteboardTypes: [NSPasteboard.PasteboardType] { [.html, .rtf, .string] }
 }
 
 /// Keeps the text column centred at a comfortable reading width.

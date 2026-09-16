@@ -347,3 +347,39 @@ import Testing
     #expect(Formatting.setJustified(false, text: "Body." as NSString, style: DocumentStyle(), selection: NSRange()) == nil)
   }
 }
+
+@Suite struct LinksAndReferences {
+  @Test func findsWhereLinksLead() {
+    let text = "= Intro <intro>\n\nSee #link(\"https://typst.app/docs?a=\\\"b\\\"\")[the docs], https://example.com, and @intro.\n" as NSString
+    let elements = Engine.outline(text as String)
+    let docs = text.range(of: "the docs").location
+    #expect(Links.target(at: docs + 2, text: text, elements: elements) == .url(URL(string: "https://typst.app/docs?a=%22b%22") ?? URL(string: "https://typst.app/docs?a=\"b\"")!))
+    let bare = text.range(of: "example.com").location
+    #expect(Links.target(at: bare, text: text, elements: elements) == .url(URL(string: "https://example.com")!))
+    let reference = text.range(of: "@intro").location
+    #expect(Links.target(at: reference + 1, text: text, elements: elements) == .label(text.range(of: "<intro>")))
+    #expect(Links.target(at: 2, text: text, elements: elements) == nil)
+  }
+
+  @Test func pastingAnAddressOverTextLinksIt() {
+    let text = "Read the manual today." as NSString
+    let selection = text.range(of: "the manual")
+    let edit = Links.pasteEdit(pasting: " https://typst.app/docs\n", text: text, selection: selection, inCode: false)
+    let result = edit?.applied(to: text as String)
+    #expect(result == "Read #link(\"https://typst.app/docs\")[the manual] today.")
+    #expect(Engine.compile(result ?? "", pdf: false).errors.isEmpty)
+    #expect(Links.pasteEdit(pasting: "not a link", text: text, selection: selection, inCode: false) == nil)
+    #expect(Links.pasteEdit(pasting: "https://a.b", text: text, selection: NSRange(location: 3, length: 0), inCode: false) == nil)
+    #expect(Links.pasteEdit(pasting: "https://a.b", text: text, selection: selection, inCode: true) == nil)
+  }
+
+  @Test func writingShowsOnlyTheLinkText() {
+    let text = "See #link(\"https://typst.app\")[Typst] now." as NSString
+    let presentation = Presentation.make(
+      text: text, elements: Engine.outline(text as String), selection: NSRange(location: 0, length: 0), mode: .writing)
+    let call = text.range(of: "#link(\"https://typst.app\")[")
+    #expect(presentation.hidden.contains(integersIn: call.location..<NSMaxRange(call)))
+    #expect(presentation.hidden.contains(text.range(of: "] now").location))
+    #expect(!presentation.hidden.contains(text.range(of: "Typst]").location))
+  }
+}

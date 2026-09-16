@@ -112,6 +112,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     add(edit, "Cut", #selector(NSText.cut(_:)), "x")
     add(edit, "Copy", #selector(NSText.copy(_:)), "c")
     add(edit, "Paste", #selector(NSText.paste(_:)), "v")
+    add(
+      edit, "Paste and Match Style", #selector(NSTextView.pasteAsPlainText(_:)), "v",
+      modifiers: [.command, .option, .shift])
     add(edit, "Delete", #selector(NSText.delete(_:)))
     add(edit, "Select All", #selector(NSText.selectAll(_:)), "a")
     edit.addItem(.separator())
@@ -181,6 +184,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     add(view, "Show Preview", #selector(Editor.togglePreview(_:)), "p", modifiers: [.command, .option])
     add(view, "Show Symbols", #selector(Editor.toggleSymbols(_:)), "t", modifiers: [.command, .option])
     add(view, "Go to Heading…", #selector(Editor.showOutline(_:)), "6", modifiers: [.control])
+    view.addItem(.separator())
+    add(view, "Fold Section", #selector(Editor.foldSection(_:)), "\u{F702}", modifiers: [.command, .option])
+    add(view, "Unfold Section", #selector(Editor.unfoldSection(_:)), "\u{F703}", modifiers: [.command, .option])
+    add(view, "Unfold All", #selector(Editor.unfoldAll(_:)), "\u{F703}", modifiers: [.command, .option, .shift])
     view.addItem(.separator())
     add(view, "Zoom In", #selector(Editor.zoomIn(_:)), "+")
     add(view, "Zoom Out", #selector(Editor.zoomOut(_:)), "-")
@@ -335,7 +342,19 @@ enum Guide {
 
     $ e^(i pi) + 1 = 0 $ <euler>
 
-    Euler's identity, @euler, connects five famous constants. Headings need numbers too before you can refer to them, which `#set heading(numbering: "1.")` turns on.
+    Euler's identity, @euler, connects five famous constants. Headings need numbers too before you can refer to them, which `#set heading(numbering: "1.")` turns on. Hold ⌘ and click a reference to go to its label.
+
+    == Links
+
+    Web addresses like https://typst.app become links on their own. To link words, select them and paste an address over them, which writes #link("https://typst.app/docs")[a link like this one]. Hold ⌘ and click a link to open it.
+
+    Text pasted from a web page or a word processor keeps its headings, bold, italics, lists, and links as Typst markup. Choose *Edit → Paste and Match Style* to paste plain text instead.
+
+    == Long documents
+
+    Point at a heading and click the arrow beside it to fold its section away, or use *View → Fold Section*. Click the dots after a folded heading, or move the cursor into the section, to unfold it. Folding only changes what you see, never the file.
+
+    Select some text to count its words in the status bar, and click the count to count characters instead.
 
     == Everything else
 

@@ -92,7 +92,9 @@ extension TypstEditor {
         index += 1
       }
       // Only lines with content after the indentation get guides.
-      guard index < NSMaxRange(line), ![0x0A, 0x0D].contains(text.character(at: index)) else { continue }
+      guard index < NSMaxRange(line), ![0x0A, 0x0D].contains(text.character(at: index)),
+        !folded.contains(line.location)
+      else { continue }
       let levels = column / width
       guard levels > 0, !(concealing && mathBlock(containing: line.location) != nil) else { continue }
       let firstGlyph = layout.glyphIndexForCharacter(at: line.location)

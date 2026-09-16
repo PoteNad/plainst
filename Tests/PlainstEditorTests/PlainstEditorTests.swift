@@ -66,3 +66,28 @@ import Testing
     #expect(editor.pageCount == 1 && editor.diagnostics.isEmpty)
   }
 }
+
+@MainActor
+@Suite struct PastingFormattedText {
+  @Test func convertsAWebPage() throws {
+    let html = """
+      <h1>Notes</h1>
+      <p>Some <b>bold</b>, <i>italic</i>, and <code>code</code> with a <a href="https://typst.app/">link</a>.</p>
+      <ul><li>First</li><li>Second<ul><li>Nested</li></ul></li></ul>
+      <ol><li>One</li></ol>
+      <p>Prices like $5 * 2 # and // stay as written.</p>
+      """
+    let formatted = try #require(NSAttributedString(html: Data(html.utf8), documentAttributes: nil))
+    let markup = try #require(TypstPaste.markup(from: formatted, indent: 2))
+    #expect(markup.hasPrefix("= Notes\n\n"), "\(markup)")
+    #expect(markup.contains("Some *bold*, _italic_, and `code` with a #link(\"https://typst.app/\")[link]."), "\(markup)")
+    #expect(markup.contains("- First\n- Second\n  - Nested\n+ One"), "\(markup)")
+    #expect(markup.contains("Prices like \\$5 \\* 2 \\# and \\// stay as written."), "\(markup)")
+    #expect(Engine.compile(markup, pdf: false).errors.isEmpty, "\(markup)")
+  }
+
+  @Test func leavesPlainTextToThePlainPaste() {
+    let plain = NSAttributedString(string: "Just words.", attributes: [.font: NSFont.systemFont(ofSize: 12)])
+    #expect(TypstPaste.markup(from: plain) == nil)
+  }
+}

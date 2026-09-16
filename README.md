@@ -31,12 +31,14 @@ Plainst formats paragraphs, headings, bold, italic, inline code and code blocks,
 - Format commands that write plain Typst: Bold (⌘B), Italic (⌘I), Code, Headings (⌥⌘1–3), Bulleted and Numbered Lists (⇧⌘8, ⇧⌘7), Equations (⌥⌘E, ⇧⌥⌘E).
 - Document Style in the Format menu sets the document's font, size, and justification by writing Typst `#set` rules, and the Writing view follows them.
 - Return continues a list and ends it on an empty item. Tab and Shift-Tab indent lines and nest list items by the tab width, with optional indentation guides.
-- An outline sidebar (⌃⌘S) of the document's headings that follows the cursor, and Go to Heading (⌃6).
+- An outline sidebar (⌃⌘S) of the document's headings that follows the cursor, Go to Heading (⌃6), and folding for the sections under headings.
+- Links that work: ⌘-click opens a web address or moves from an `@reference` to its label, and pasting an address over selected words writes `#link`.
+- Pasting from web pages and word processors converts headings, bold, italics, lists, and links to Typst markup; Paste and Match Style (⌥⇧⌘V) keeps plain text.
 - Completions from Typst's own IDE engine for symbols, math functions, code, and label references after `@` (⌥⎋ to ask), with snippet placeholders you can Tab through.
 - Automatic pairs for dollar signs, brackets, backticks, and quotes in code; typing `*` or `_` over a selection wraps it. The bracket beside the cursor and its partner are highlighted.
 - A symbols inspector (⌥⌘T) to search and insert Typst symbols and common math structures.
 - Settings for the default view, Writing zoom, text width, Source font, tab width, new document line endings, and each kind of typing assistance.
-- Live Typst diagnostics with underlines, messages at the ends of their lines, and a status bar menu, plus word and page counts.
+- Live Typst diagnostics with underlines, messages at the ends of their lines, and a status bar menu, plus page counts and word or character counts for the document or the selection.
 - Find and replace, spelling, zoom, light and dark appearances, and optional Apple Writing Tools that are off by default.
 - Opening and saving an unedited file keeps it byte-for-byte identical, including line endings and byte order marks.
 

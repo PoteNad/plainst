@@ -481,6 +481,126 @@ enum AppChecks {
   }
 
   /// Sends real key and mouse events, the way a person types and clicks.
+  /// Links, folding, the status bar count, and formatted paste.
+  private static func linkFoldAndPasteChecks(_ editor: Editor) {
+    let view = editor.textView
+    editor.setMode(.writing)
+    editor.loadText(
+      "= Intro <intro>\n\nRead #link(\"https://typst.app\")[the docs] and https://example.com.\n\n"
+        + "== Details\n\nHidden words here.\n\n= Next\n\nSee @intro.\n")
+    after(1.5) {
+      let text = editor.text as NSString
+      editor.layout.ensureLayout(for: editor.container)
+      let origin = view.textContainerOrigin
+      @MainActor func point(of string: String) -> NSPoint {
+        let range = text.range(of: string)
+        let glyphs = editor.layout.glyphRange(forCharacterRange: NSRange(location: range.location + 1, length: 1), actualCharacterRange: nil)
+        let rect = editor.layout.boundingRect(forGlyphRange: glyphs, in: editor.container)
+        return NSPoint(x: origin.x + rect.midX, y: origin.y + rect.midY)
+      }
+      guard case .url(let docs) = editor.typst.linkTarget(at: point(of: "the docs")),
+        docs.absoluteString == "https://typst.app",
+        case .url(let bare) = editor.typst.linkTarget(at: point(of: "example.com")),
+        bare.absoluteString == "https://example.com",
+        case .label(let label) = editor.typst.linkTarget(at: point(of: "@intro")),
+        let target = editor.typst.linkTarget(at: point(of: "@intro"))
+      else { fail("⌘-click targets for links and references were not found") }
+      guard editor.presentation.hidden.contains(text.range(of: "#link(").location) else {
+        fail("a #link call's markup should be hidden in the Writing view")
+      }
+      editor.typst.open(target)
+      guard view.selectedRange().location == label.location, text.substring(with: label) == "<intro>" else {
+        fail("⌘-clicking a reference should move to its label; cursor at \(view.selectedRange())")
+      }
+      pass("⌘-click finds links and moves from references to their labels")
+
+      // Pasting a URL over selected words links them.
+      let pasteboard = NSPasteboard(name: NSPasteboard.Name("PlainstCheck-\(UUID().uuidString)"))
+      defer { pasteboard.releaseGlobally() }
+      pasteboard.clearContents()
+      pasteboard.setString("https://typst.app/docs", forType: .string)
+      view.setSelectedRange(text.range(of: "Hidden words"))
+      _ = view.readSelection(from: pasteboard, type: .string)
+      guard editor.text.contains("#link(\"https://typst.app/docs\")[Hidden words] here.") else {
+        fail("pasting a URL over a selection should link it: \(editor.text.debugDescription)")
+      }
+      view.undoManager?.undo()
+      guard editor.text.contains("\nHidden words here.") else { fail("undoing a pasted link failed") }
+      pass("pasting a URL over selected words links them, and undo restores them")
+
+      // Formatted text becomes markup; the plain-text flavor is pasted as is.
+      pasteboard.clearContents()
+      pasteboard.setData(Data("<p>Some <b>bold</b> and <i>italic</i> text.</p>".utf8), forType: .html)
+      pasteboard.setString("Some bold and italic text.", forType: .string)
+      let end = NSRange(location: (editor.text as NSString).length, length: 0)
+      view.setSelectedRange(end)
+      _ = view.readSelection(from: pasteboard, type: .html)
+      guard editor.text.hasSuffix("Some *bold* and _italic_ text.") else {
+        fail("pasting a web page should write Typst markup: \(editor.text.debugDescription)")
+      }
+      view.undoManager?.undo()
+      view.setSelectedRange(NSRange(location: (editor.text as NSString).length, length: 0))
+      _ = view.readSelection(from: pasteboard, type: .string)
+      guard editor.text.hasSuffix("Some bold and italic text.") else {
+        fail("Paste and Match Style should paste plain text: \(editor.text.debugDescription)")
+      }
+      view.undoManager?.undo()
+      pass("formatted paste writes markup and plain paste keeps the text")
+
+      after(1.0) {
+        // The status bar counts the selection, in words or characters.
+        let key = PreferenceKey.statusCount
+        let saved = UserDefaults.standard.string(forKey: key)
+        let words = Formatting.wordCount(editor.text)
+        view.setSelectedRange((editor.text as NSString).range(of: "Hidden words here"))
+        UserDefaults.standard.set("words", forKey: key)
+        let wordText = editor.countText(for: view.selectedRange())
+        UserDefaults.standard.set("characters", forKey: key)
+        let characterText = editor.countText(for: view.selectedRange())
+        UserDefaults.standard.set(saved, forKey: key)
+        guard wordText == "3 of \(words) words", characterText == "17 of \(editor.text.count) characters" else {
+          fail("the status bar count read \(wordText.debugDescription) and \(characterText.debugDescription)")
+        }
+        pass("the status bar counts selected words and characters")
+
+        // Folding a heading collapses its section until the cursor enters it.
+        let now = editor.text as NSString
+        let details = now.range(of: "== Details").location
+        let hidden = now.range(of: "Hidden words")
+        view.setSelectedRange(NSRange(location: 0, length: 0))
+        editor.typst.setFolded(true, headingAt: details)
+        editor.layout.ensureLayout(for: editor.container)
+        @MainActor func height(of range: NSRange) -> CGFloat {
+          let glyph = editor.layout.glyphIndexForCharacter(at: range.location)
+          return editor.layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil).height
+        }
+        let next = now.range(of: "= Next")
+        guard editor.typst.foldedHeadingLocations == [details], height(of: hidden) == 0, height(of: next) > 0,
+          editor.typst.isFolded(headingAt: details)
+        else {
+          fail("folding should collapse only the section; the hidden line is \(height(of: hidden))pt tall")
+        }
+        // Folding "= Intro" covers its subsection too.
+        guard let section = editor.typst.sectionRange(ofHeadingAt: 0),
+          NSLocationInRange(details, section), !NSLocationInRange(next.location, section)
+        else { fail("a heading's section should end at the next heading of its level") }
+        view.setSelectedRange(NSRange(location: hidden.location, length: 0))
+        editor.selectionChanged()
+        editor.layout.ensureLayout(for: editor.container)
+        guard editor.typst.foldedHeadingLocations.isEmpty, height(of: hidden) > 0 else {
+          fail("moving the cursor into a folded section should unfold it")
+        }
+        editor.typst.setFolded(true, headingAt: details)
+        editor.typst.unfoldAll()
+        guard editor.typst.foldedHeadingLocations.isEmpty, editor.text == now as String else {
+          fail("Unfold All should unfold every section without changing the text")
+        }
+        pass("folding collapses a section, and the cursor or Unfold All opens it")
+        finish()
+      }
+    }
+  }
+
   private static func inputCheck(_ controller: PlainstDocumentController) {
     after(1.5) {
       guard let document = controller.documents.first as? PlainstDocument,
@@ -689,7 +809,7 @@ enum AppChecks {
                                     fail("accepting a label should write a reference: \(editor.text.debugDescription)")
                                   }
                                   pass("typing @ suggests labels and writes references")
-                                  finish()
+                                  linkFoldAndPasteChecks(editor)
                                 }
                               }
                             }
@@ -801,6 +921,9 @@ enum AppChecks {
       }
       if let hover = environment["PLAINST_HOVER"].flatMap(Int.init) {
         after(2) { editor.showHover(at: hover) }
+      }
+      if let heading = environment["PLAINST_FOLD"].flatMap(Int.init) {
+        after(1) { editor.typst.setFolded(true, headingAt: heading) }
       }
       if environment["PLAINST_TABS"] == "1" {
         window.makeKeyAndOrderFront(nil)

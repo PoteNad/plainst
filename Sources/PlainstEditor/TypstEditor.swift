@@ -114,6 +114,12 @@ public final class TypstEditor: NSObject, NSTextViewDelegate, @preconcurrency NS
   /// The font, size, and justification the document sets for itself, which the Writing view
   /// follows.
   public internal(set) var documentStyle = DocumentStyle()
+  /// Where each folded heading starts.
+  var foldedHeadings = Set<Int>()
+  /// The characters folded sections hide from layout.
+  var folded = IndexSet()
+  /// The heading under the pointer, whose fold control shows.
+  var hoveredHeading: Int?
   var styleGeneration = 0
 
   public private(set) var elements: [OutlineElement] = []
@@ -142,6 +148,8 @@ public final class TypstEditor: NSObject, NSTextViewDelegate, @preconcurrency NS
   private var previewLine: NSRange?
   private var previewSpace: CGFloat = 0
   public private(set) var wordCount = 0
+  /// Characters as a reader counts them, updated with the word count after each compile.
+  public private(set) var characterCount = 0
   /// Identifies this editor's compiled document in the engine, for label completions and
   /// preview pages.
   public let engineKey: UInt64 = {
@@ -265,6 +273,9 @@ public final class TypstEditor: NSObject, NSTextViewDelegate, @preconcurrency NS
   /// Replaces the text without recording an undo action, and puts the cursor at the start.
   public func loadText(_ text: String) {
     documentStyle = Engine.documentStyle(text)
+    foldedHeadings.removeAll()
+    folded = IndexSet()
+    hoveredHeading = nil
     isLoading = true
     storage.setAttributedString(NSAttributedString(string: text, attributes: plainAttributes()))
     isLoading = false
@@ -302,6 +313,9 @@ public final class TypstEditor: NSObject, NSTextViewDelegate, @preconcurrency NS
       }
     }
     pendingConcealment = (hidden, replacements)
+    // Folded characters move with the text until the folds are recomputed.
+    folded.remove(integersIn: oldRange.location..<NSMaxRange(oldRange))
+    folded.shift(startingAt: NSMaxRange(oldRange), by: delta)
     if pendingRestyle != nil {
       // Deferred styling from an earlier edit is now in stale coordinates; redo everything.
       pendingRestyle = NSRange(location: 0, length: textStorage.length)
@@ -333,6 +347,7 @@ public final class TypstEditor: NSObject, NSTextViewDelegate, @preconcurrency NS
     _ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?
   ) -> Bool {
     if let replacementString {
+      foldsWillChange(range: affectedCharRange, replacementLength: (replacementString as NSString).length)
       assistant.textWillChange(
         range: affectedCharRange, replacementLength: (replacementString as NSString).length)
     }
@@ -345,6 +360,7 @@ public final class TypstEditor: NSObject, NSTextViewDelegate, @preconcurrency NS
       pendingConcealment = nil
       invalidateConcealment(hidden: pending.hidden, replacements: pending.replacements)
     }
+    refreshFolds()
     updatePreview()
     clearAnnotations()
     scheduleCompile()
@@ -373,6 +389,7 @@ public final class TypstEditor: NSObject, NSTextViewDelegate, @preconcurrency NS
     // select the wrong text, so wait until the button is released.
     assistant.selectionDidChange()
     guard !textView.hasMarkedText(), !isTrackingMouse else { return }
+    unfoldAroundSelection()
     refreshPresentation()
     updateBracketHighlight()
   }
@@ -622,7 +639,7 @@ public final class TypstEditor: NSObject, NSTextViewDelegate, @preconcurrency NS
   }
 
   func metrics(forReplacementAt index: Int) -> ReplacementMetrics? {
-    guard index < storage.length, let replacement = presentation.replacements[index] else {
+    guard index < storage.length, !folded.contains(index), let replacement = presentation.replacements[index] else {
       return nil
     }
     switch replacement {
@@ -684,7 +701,7 @@ public final class TypstEditor: NSObject, NSTextViewDelegate, @preconcurrency NS
           family: documentStyle.font, size: size, bold: style.contains(.bold) || run.heading > 0,
           italic: style.contains(.italic))
       }
-      if style.contains(.reference) { color = .linkColor }
+      if style.contains(.reference) || style.contains(.link) { color = .linkColor }
       if style.contains(.marker) { color = .tertiaryLabelColor }
       result[.font] = font
       let lineSize = bodySize * Presentation.headingScale(run.paragraph.heading)
@@ -759,19 +776,24 @@ public final class TypstEditor: NSObject, NSTextViewDelegate, @preconcurrency NS
     characterIndexes charIndexes: UnsafePointer<Int>, font aFont: NSFont,
     forGlyphRange glyphRange: NSRange
   ) -> Int {
-    guard concealing, !(presentation.hidden.isEmpty && presentation.replacements.isEmpty) else {
-      return 0
-    }
+    let conceals = concealing && !(presentation.hidden.isEmpty && presentation.replacements.isEmpty)
+    guard conceals || !folded.isEmpty else { return 0 }
     let count = glyphRange.length
     var modified = false
     var properties = [NSLayoutManager.GlyphProperty](repeating: [], count: count)
     for i in 0..<count {
       let character = charIndexes[i]
       var property = props[i]
-      if presentation.replacements[character] != nil {
+      if folded.contains(character) {
+        // Line breaks stay, so each folded line keeps its own collapsed fragment.
+        if !property.contains(.controlCharacter) {
+          property = .null
+          modified = true
+        }
+      } else if conceals, presentation.replacements[character] != nil {
         property = .controlCharacter
         modified = true
-      } else if presentation.hidden.contains(character) {
+      } else if conceals, presentation.hidden.contains(character) {
         property = .null
         modified = true
       }
@@ -819,6 +841,13 @@ public final class TypstEditor: NSObject, NSTextViewDelegate, @preconcurrency NS
     // Leave room under the equation being edited for its preview.
     if let line = previewLine, previewSpace > 0, NSLocationInRange(NSMaxRange(line) - 1, characters) {
       extraBottom += previewSpace
+    }
+    if isFoldedLine(characters) {
+      // Folded sections take no space.
+      lineFragmentRect.pointee.size.height = 0
+      lineFragmentUsedRect.pointee.size.height = 0
+      baselineOffset.pointee = 0
+      return true
     }
     var ascent = baselineOffset.pointee
     var descent = lineFragmentRect.pointee.height - ascent
@@ -957,7 +986,7 @@ public final class TypstEditor: NSObject, NSTextViewDelegate, @preconcurrency NS
     let accent = NSColor.controlAccentColor
     let em = bodySize
     for block in presentation.mathBlocks
-    where !block.rendered && NSIntersectionRange(block.lines, characters).length > 0 {
+    where !block.rendered && NSIntersectionRange(block.lines, characters).length > 0 && !folded.contains(block.lines.location) {
       guard let geometry = cardGeometry(block) else { continue }
       let card = geometry.card.offsetBy(dx: origin.x, dy: origin.y)
       let path = NSBezierPath(
@@ -1001,7 +1030,8 @@ public final class TypstEditor: NSObject, NSTextViewDelegate, @preconcurrency NS
           from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
       }
     }
-    for range in presentation.inlineMathSources where NSIntersectionRange(range, characters).length > 0 {
+    for range in presentation.inlineMathSources
+    where NSIntersectionRange(range, characters).length > 0 && !folded.contains(range.location) {
       let glyphRange = layout.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
       layout.enumerateEnclosingRects(
         forGlyphRange: glyphRange, withinSelectedGlyphRange: NSRange(location: NSNotFound, length: 0),
@@ -1112,10 +1142,17 @@ public final class TypstEditor: NSObject, NSTextViewDelegate, @preconcurrency NS
   #endif
 
   func mouseMoved(to point: NSPoint?) {
+    let heading = point.flatMap { heading(at: $0) }
+    if heading != hoveredHeading {
+      hoveredHeading = heading
+      textView.needsDisplay = true
+    }
     let hovered = concealing ? point.flatMap { renderedMath(at: $0) } : nil
     if hovered != nil { NSCursor.pointingHand.set() }
     let problem = hovered == nil ? point.flatMap { diagnostic(at: $0) } : nil
-    let tip = hovered != nil ? "Edit equation" : problem.map(Self.describe)
+    let link = hovered == nil && problem == nil ? point.flatMap { linkHint(at: $0) } : nil
+    if link != nil, NSEvent.modifierFlags.contains(.command) { NSCursor.pointingHand.set() }
+    let tip = hovered != nil ? "Edit equation" : problem.map(Self.describe) ?? link
     if textView.toolTip != tip { textView.toolTip = tip }
     guard hovered != hoveredMath else { return }
     hoveredMath = hovered
@@ -1232,6 +1269,7 @@ public final class TypstEditor: NSObject, NSTextViewDelegate, @preconcurrency NS
     diagnostics = result.diagnostics
     pageCount = result.pages
     wordCount = Formatting.wordCount(text)
+    characterCount = text.count
     let full = NSRange(location: 0, length: storage.length)
     layout.removeTemporaryAttribute(.underlineStyle, forCharacterRange: full)
     layout.removeTemporaryAttribute(.underlineColor, forCharacterRange: full)
@@ -1310,8 +1348,9 @@ public final class TypstEditor: NSObject, NSTextViewDelegate, @preconcurrency NS
   private func drawAnnotations(forCharacters characters: NSRange) {
     guard !annotations.isEmpty else { return }
     let font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
-    for annotation in annotations where NSLocationInRange(annotation.location, characters)
-      || annotation.location == NSMaxRange(characters) && annotation.location == storage.length
+    for annotation in annotations where (NSLocationInRange(annotation.location, characters)
+      || annotation.location == NSMaxRange(characters) && annotation.location == storage.length)
+      && !folded.contains(annotation.location)
     {
       guard let (rect, compact) = annotationRect(annotation) else { continue }
       let color: NSColor = annotation.diagnostic.isError ? .systemRed : .systemOrange

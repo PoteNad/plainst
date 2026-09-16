@@ -198,3 +198,27 @@ fn lists_font_families() {
     assert!(json.contains("\"Libertinus Serif\""), "{json}");
     assert!(json.contains("\"New Computer Modern\""), "{json}");
 }
+
+#[test]
+fn outline_reports_link_calls() {
+    let text = "See #link(\"https://typst.app\")[the *Typst* site] or #link(\"https://a.b\").";
+    let json = outline_json(text);
+    let start = text.find("#link").unwrap();
+    let body = text.find("the *").unwrap();
+    assert!(
+        json.contains(&format!("\"k\":\"hyperlink\",\"s\":{start},")),
+        "{json}"
+    );
+    assert!(json.contains(&format!("\"c\":[{body},{}]", text.find("] or").unwrap())), "{json}");
+    // Markup inside the link text is still styled.
+    assert!(json.contains("\"k\":\"strong\""), "{json}");
+    let bare = text.rfind("#link").unwrap();
+    let address = text.rfind("https://a.b").unwrap();
+    assert!(
+        json.contains(&format!("\"k\":\"hyperlink\",\"s\":{bare},")),
+        "{json}"
+    );
+    assert!(json.contains(&format!("\"c\":[{address},{}]", address + 11)), "{json}");
+    // Other calls stay embedded code.
+    assert!(outline_json("#link(dest: \"x\")[y]").contains("\"k\":\"code\""));
+}
