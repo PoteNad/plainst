@@ -343,6 +343,16 @@ public final class TypstEditor: NSObject, NSTextViewDelegate, @preconcurrency NS
 
   public func undoManager(for view: NSTextView) -> UndoManager? { delegate?.undoManager(for: self) }
 
+  /// Spelling skips code, equations, labels, references, and web addresses.
+  public func textView(_ textView: NSTextView, shouldSetSpellingState value: Int, range affectedCharRange: NSRange) -> Int {
+    guard value != 0 else { return value }
+    let skipped: Set<OutlineElement.Kind> = [.raw, .math, .code, .label, .ref, .link]
+    let overlaps = elements.contains {
+      skipped.contains($0.kind) && NSIntersectionRange($0.range, affectedCharRange).length > 0
+    }
+    return overlaps ? 0 : value
+  }
+
   public func textView(
     _ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?
   ) -> Bool {
@@ -662,6 +672,17 @@ public final class TypstEditor: NSObject, NSTextViewDelegate, @preconcurrency NS
 
   // MARK: Attributes
 
+  /// The colour of a highlighted token in a code block, like Xcode's default theme.
+  static func codeColor(for style: TextStyle) -> NSColor? {
+    if style.contains(.codeComment) { return .secondaryLabelColor }
+    if style.contains(.codeString) { return .systemRed }
+    if style.contains(.codeKeyword) { return .systemPink }
+    if style.contains(.codeConstant) { return .systemIndigo }
+    if style.contains(.codeFunction) { return .systemPurple }
+    if style.contains(.codeType) { return .systemTeal }
+    return nil
+  }
+
   func plainAttributes() -> [NSAttributedString.Key: Any] {
     attributes(for: StyleRun(range: NSRange(), style: [], heading: 0, paragraph: ParagraphKind()))
   }
@@ -696,6 +717,7 @@ public final class TypstEditor: NSObject, NSTextViewDelegate, @preconcurrency NS
       } else if style.contains(.code) || style.contains(.rawBlock) {
         font = Typefaces.typstMono(
           size: size * 0.8, bold: style.contains(.bold), italic: style.contains(.italic))
+        color = Self.codeColor(for: style) ?? color
       } else {
         font = Typefaces.serif(
           family: documentStyle.font, size: size, bold: style.contains(.bold) || run.heading > 0,
@@ -737,7 +759,7 @@ public final class TypstEditor: NSObject, NSTextViewDelegate, @preconcurrency NS
       } else if style.contains(.unsupported) {
         color = .systemPink
       } else if style.contains(.code) || style.contains(.rawBlock) {
-        color = .systemBrown
+        color = Self.codeColor(for: style) ?? .systemBrown
       } else if style.contains(.link) || style.contains(.reference) {
         color = .linkColor
       } else if style.contains(.label) {
@@ -1142,9 +1164,9 @@ public final class TypstEditor: NSObject, NSTextViewDelegate, @preconcurrency NS
   #endif
 
   func mouseMoved(to point: NSPoint?) {
-    let heading = point.flatMap { heading(at: $0) }
-    if heading != hoveredHeading {
-      hoveredHeading = heading
+    let pointed = point.flatMap { self.heading(at: $0) }
+    if pointed != hoveredHeading {
+      hoveredHeading = pointed
       textView.needsDisplay = true
     }
     let hovered = concealing ? point.flatMap { renderedMath(at: $0) } : nil

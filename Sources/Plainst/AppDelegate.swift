@@ -309,6 +309,13 @@ enum Guide {
 
     Write paragraphs as plain text, separated by a blank line. Use *bold* with asterisks, _italic_ with underscores, and `code` with backticks. Two hyphens make an en dash -- like this.
 
+    Put a block of code between lines of three backticks. Name its language after the first three, and Plainst suggests languages as you type and colours the code:
+
+    ```python
+    def greet(name):
+        return f"Hello, {name}!"  # Python
+    ```
+
     == Lists
 
     - Start a bulleted item with a hyphen.

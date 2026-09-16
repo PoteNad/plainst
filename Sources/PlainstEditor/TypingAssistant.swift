@@ -112,10 +112,22 @@ final class TypingAssistant {
     if character == "@" && !inCode && wordLength(before: caret.location - 1) == 0 {
       return request(explicit: false)
     }
+    // The languages a code block can name, after its opening backticks.
+    if character == "`" && !inCode && opensCodeBlock(at: caret.location) {
+      return request(explicit: false)
+    }
     if inCode && (character == "." || (isWordCharacter && wordLength(before: caret.location) >= 2)) {
       return request(explicit: false)
     }
     dismiss()
+  }
+
+  /// Whether the line before `location` is only the three or more backticks that open a code block.
+  private func opensCodeBlock(at location: Int) -> Bool {
+    let line = text.lineRange(for: NSRange(location: location, length: 0))
+    let before = text.substring(with: NSRange(location: line.location, length: location - line.location))
+      .drop { $0 == " " || $0 == "\t" }
+    return before.count >= 3 && before.allSatisfy { $0 == "`" }
   }
 
   private func wordLength(before location: Int) -> Int {

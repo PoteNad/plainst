@@ -201,6 +201,10 @@ import Testing
   @Test func pairsBackticksAndWrapsSelections() {
     #expect(type("`", in: "use ", at: 4)! == ("use ``", 5))
     #expect(type("`", in: "$x$", at: 2, inCode: true) == nil)
+    // Typing a code block's fence: the second backtick steps over the pair, the third stays single.
+    #expect(type("`", in: "``", at: 1)! == ("``", 2))
+    #expect(type("`", in: "``", at: 2) == nil)
+    #expect(Engine.completions("```", cursor: 3, explicit: false).items.contains { $0.label == "Python" })
     func wrap(_ character: String, _ text: String, _ range: NSRange, inCode: Bool = false) -> String? {
       AutoPair.edit(typing: character, text: text as NSString, selection: range, inCode: inCode)?
         .applied(to: text)

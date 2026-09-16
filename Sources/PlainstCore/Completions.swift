@@ -122,6 +122,10 @@ public enum AutoPair {
     // Quotes pair in code, where they start strings; backticks pair in text, where they start raw text.
     if typed == "\"" && !inCode { return nil }
     if typed == "`" && inCode { return nil }
+    // The third backtick of a code block's fence opens the block rather than a pair.
+    if typed == "`", location >= 2, text.substring(with: NSRange(location: location - 2, length: 2)) == "``" {
+      return nil
+    }
     // Escaped characters stay literal.
     if previous == 0x5C { return nil }
     // Only pair before whitespace, punctuation, or the end of the line.

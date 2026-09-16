@@ -596,7 +596,42 @@ enum AppChecks {
           fail("Unfold All should unfold every section without changing the text")
         }
         pass("folding collapses a section, and the cursor or Unfold All opens it")
-        finish()
+
+        // Code blocks that name a language are coloured, and typing a fence suggests languages.
+        editor.loadText("```python\ndef area(r):\n    return 3.14 * r  # half\n```\n\n")
+        after(1.0) {
+          let code = editor.text as NSString
+          @MainActor func color(of word: String) -> NSColor? {
+            editor.storage.attribute(.foregroundColor, at: code.range(of: word).location, effectiveRange: nil) as? NSColor
+          }
+          guard color(of: "def") == .systemPink, color(of: "3.14") == .systemIndigo,
+            color(of: "# half") == .secondaryLabelColor, color(of: "area") == .systemPurple
+          else {
+            fail("the Python block was not highlighted: def \(String(describing: color(of: "def")))")
+          }
+          view.setSelectedRange(NSRange(location: code.length, length: 0))
+          for _ in 0..<3 { view.insertText("`", replacementRange: view.selectedRange()) }
+          after(1.0) {
+            let languages = editor.assistant.popup.items.map(\.label)
+            guard languages.contains("Python"), languages.contains("Rust") else {
+              fail("typing ``` should suggest languages; got \(languages.prefix(5)) in \(editor.text.debugDescription)")
+            }
+            view.insertText("py", replacementRange: view.selectedRange())
+            after(1.0) {
+              guard editor.assistant.popup.items.first?.label == "Python" else {
+                fail("typing py should put Python first: \(editor.assistant.popup.items.prefix(3).map(\.label))")
+              }
+              view.insertText("t", replacementRange: view.selectedRange())
+              editor.assistant.popup.acceptSelection()
+              // Typst writes each language's first tag, "py" for Python.
+              guard editor.text.hasSuffix("\n\n```py"), editor.assistant.popup.items.isEmpty else {
+                fail("accepting Python should write the tag: \(editor.text.debugDescription)")
+              }
+              pass("code blocks are highlighted by language, and a fence suggests languages")
+              finish()
+            }
+          }
+        }
       }
     }
   }

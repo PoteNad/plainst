@@ -7,6 +7,8 @@ public struct OutlineElement: Equatable, Sendable {
   public enum Kind: String, Sendable, Decodable {
     case heading, strong, emph, raw, link, code, comment, linebreak, escape, shorthand, math
     case list, `enum`, term, label, ref, hyperlink
+    /// A token of code in a raw block that names its language; `number` is its ``CodeToken``.
+    case token
   }
 
   public var kind: Kind
@@ -161,7 +163,7 @@ public enum Engine {
   /// Element kinds in the order the engine numbers them.
   private static let kinds: [OutlineElement.Kind] = [
     .heading, .strong, .emph, .raw, .link, .code, .comment, .linebreak, .escape, .shorthand,
-    .math, .list, .enum, .term, .label, .ref, .hyperlink,
+    .math, .list, .enum, .term, .label, .ref, .hyperlink, .token,
   ]
   private static let shorthands = ["\u{2013}", "\u{2014}", "\u{2026}", "\u{00A0}"]
 

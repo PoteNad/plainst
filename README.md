@@ -35,6 +35,7 @@ Plainst formats paragraphs, headings, bold, italic, inline code and code blocks,
 - Links that work: ⌘-click opens a web address or moves from an `@reference` to its label, and pasting an address over selected words writes `#link`.
 - Pasting from web pages and word processors converts headings, bold, italics, lists, and links to Typst markup; Paste and Match Style (⌥⇧⌘V) keeps plain text.
 - Completions from Typst's own IDE engine for symbols, math functions, code, and label references after `@` (⌥⎋ to ask), with snippet placeholders you can Tab through.
+- Code blocks that name a language are highlighted with the same syntax definitions Typst uses, and typing ```` ``` ```` suggests the languages Typst knows.
 - Automatic pairs for dollar signs, brackets, backticks, and quotes in code; typing `*` or `_` over a selection wraps it. The bracket beside the cursor and its partner are highlighted.
 - A symbols inspector (⌥⌘T) to search and insert Typst symbols and common math structures.
 - Settings for the default view, Writing zoom, text width, Source font, tab width, new document line endings, and each kind of typing assistance.

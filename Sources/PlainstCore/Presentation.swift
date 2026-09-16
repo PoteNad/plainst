@@ -35,6 +35,15 @@ public struct TextStyle: OptionSet, Hashable, Sendable {
   public static let label = TextStyle(rawValue: 1 << 9)
   /// A reference such as `@intro`.
   public static let reference = TextStyle(rawValue: 1 << 10)
+
+  // Tokens of code in a raw block with a language, in the engine's order.
+  public static let codeComment = TextStyle(rawValue: 1 << 11)
+  public static let codeString = TextStyle(rawValue: 1 << 12)
+  public static let codeKeyword = TextStyle(rawValue: 1 << 13)
+  public static let codeConstant = TextStyle(rawValue: 1 << 14)
+  public static let codeFunction = TextStyle(rawValue: 1 << 15)
+  public static let codeType = TextStyle(rawValue: 1 << 16)
+  static let codeTokens: [TextStyle] = [.codeComment, .codeString, .codeKeyword, .codeConstant, .codeFunction, .codeType]
 }
 
 /// Paragraph-level styling. Every character of a line shares one value.
@@ -206,6 +215,10 @@ public struct Presentation: Equatable, Sendable {
         }
         if writing && !isActive(range) { element.markers.forEach(hide) }
 
+      case .token:
+        if let number = element.number, TextStyle.codeTokens.indices.contains(number) {
+          add(TextStyle.codeTokens[number], range)
+        }
       case .link:
         add(.link, range)
       case .hyperlink:

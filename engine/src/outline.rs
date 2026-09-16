@@ -56,7 +56,7 @@ fn elements(text: &str) -> Vec<Element> {
     walker.elements
 }
 
-const KINDS: [&str; 17] = [
+const KINDS: [&str; 18] = [
     "heading",
     "strong",
     "emph",
@@ -74,6 +74,7 @@ const KINDS: [&str; 17] = [
     "label",
     "ref",
     "hyperlink",
+    "token",
 ];
 const SHORTHANDS: [&str; 4] = ["\u{2013}", "\u{2014}", "\u{2026}", "\u{00a0}"];
 
@@ -317,7 +318,10 @@ impl Walker<'_> {
         let [callee, args] = children.as_slice() else {
             return false;
         };
-        if callee.kind() != SyntaxKind::Ident || callee.leaf_text() != "link" || args.kind() != SyntaxKind::Args {
+        if callee.kind() != SyntaxKind::Ident
+            || callee.leaf_text() != "link"
+            || args.kind() != SyntaxKind::Args
+        {
             return false;
         }
         // The arguments must be exactly a string and, optionally, one content block.
@@ -330,7 +334,9 @@ impl Walker<'_> {
             match arg.kind() {
                 SyntaxKind::LeftParen | SyntaxKind::RightParen | SyntaxKind::Space => {}
                 SyntaxKind::Str if url.is_none() && body.is_none() => url = Some((start, cursor)),
-                SyntaxKind::ContentBlock if url.is_some() && body.is_none() => body = Some((start, arg)),
+                SyntaxKind::ContentBlock if url.is_some() && body.is_none() => {
+                    body = Some((start, arg))
+                }
                 _ => return false,
             }
         }
@@ -342,10 +348,17 @@ impl Walker<'_> {
         match body {
             Some((block_start, block)) => {
                 let block_end = block_start + block.len();
-                let closes = block.children().last().is_some_and(|c| c.kind() == SyntaxKind::RightBracket);
-                element.markers.push((self.u(hash), self.u(block_start + 1)));
+                let closes = block
+                    .children()
+                    .last()
+                    .is_some_and(|c| c.kind() == SyntaxKind::RightBracket);
+                element
+                    .markers
+                    .push((self.u(hash), self.u(block_start + 1)));
                 if closes {
-                    element.markers.push((self.u(block_end - 1), self.u(block_end)));
+                    element
+                        .markers
+                        .push((self.u(block_end - 1), self.u(block_end)));
                 }
                 let inner_end = if closes { block_end - 1 } else { block_end };
                 element.content = Some((self.u(block_start + 1), self.u(inner_end)));
@@ -437,6 +450,15 @@ impl Walker<'_> {
             }
         }
         self.elements.push(element);
+        let mut tokens = Vec::new();
+        crate::highlight::raw_tokens(node, offset, |start, end, token| {
+            tokens.push((start, end, token))
+        });
+        for (start, end, token) in tokens {
+            let mut element = Element::new("token", self.u(start), self.u(end));
+            element.number = Some(token as i64);
+            self.elements.push(element);
+        }
     }
 
     fn list_item(&mut self, node: &SyntaxNode, offset: usize) {

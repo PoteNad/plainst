@@ -112,10 +112,19 @@ fn lists_symbols() {
 #[test]
 fn symbol_groups_cover_every_symbol() {
     // If codex adds symbols, regenerate engine/src/symbol_groups.txt so they get a real category.
-    assert!(!symbols_json().contains("{\"title\":\"Other\""), "run scripts/generate-symbol-groups.swift");
+    assert!(
+        !symbols_json().contains("{\"title\":\"Other\""),
+        "run scripts/generate-symbol-groups.swift"
+    );
     let listed = include_str!("symbol_groups.txt");
-    for line in listed.lines().filter(|l| !l.starts_with('#') && !l.starts_with("==") && !l.is_empty()) {
-        assert!(codex::SYM.get(line).is_some(), "unknown symbol {line} in symbol_groups.txt");
+    for line in listed
+        .lines()
+        .filter(|l| !l.starts_with('#') && !l.starts_with("==") && !l.is_empty())
+    {
+        assert!(
+            codex::SYM.get(line).is_some(),
+            "unknown symbol {line} in symbol_groups.txt"
+        );
     }
 }
 
@@ -124,11 +133,15 @@ fn completes_references_from_the_compiled_document() {
     use typst::syntax::Source;
     let text = "#set heading(numbering: \"1.\")\n= Introduction <intro>\n\nSee @";
     let source = Source::new(*world::MAIN_ID, text.to_owned());
-    let document = typst::compile::<typst_layout::PagedDocument>(&world::PlainstWorld::new(source.clone()))
-        .output
-        .expect("the document compiles");
+    let document =
+        typst::compile::<typst_layout::PagedDocument>(&world::PlainstWorld::new(source.clone()))
+            .output
+            .expect("the document compiles");
     let json = ide::complete_in(&source, text.len(), false, Some(&document));
-    assert!(json.contains("\"kind\":\"label\",\"label\":\"intro\""), "{json}");
+    assert!(
+        json.contains("\"kind\":\"label\",\"label\":\"intro\""),
+        "{json}"
+    );
     assert!(json.contains("\"detail\":\"Introduction\""), "{json}");
 }
 
@@ -136,7 +149,10 @@ fn completes_references_from_the_compiled_document() {
 fn outline_reports_labels_and_references() {
     let json = outline_json("= Intro <intro>\n\nSee @intro.\n");
     assert!(json.contains("\"k\":\"label\",\"s\":8,\"e\":15"), "{json}");
-    assert!(json.contains("\"k\":\"ref\",\"s\":21,\"e\":27,\"m\":[[21,22]]"), "{json}");
+    assert!(
+        json.contains("\"k\":\"ref\",\"s\":21,\"e\":27,\"m\":[[21,22]]"),
+        "{json}"
+    );
 }
 
 #[test]
@@ -179,17 +195,27 @@ fn reads_the_document_style_from_top_level_set_rules() {
                 #let f() = { set text(size: 20pt) }\n\
                 #set text(fill: red, size: 12pt)\n\nBody.\n";
     let json = style_json(text);
-    assert!(json.starts_with("{\"font\":\"New Computer Modern\",\"size\":12,\"justify\":true"), "{json}");
+    assert!(
+        json.starts_with("{\"font\":\"New Computer Modern\",\"size\":12,\"justify\":true"),
+        "{json}"
+    );
     // The last text rule is the one to edit, with both of its arguments.
     let last = text.rfind("#set text(fill").unwrap();
-    assert!(json.contains(&format!("\"text\":{{\"s\":{last},")), "{json}");
+    assert!(
+        json.contains(&format!("\"text\":{{\"s\":{last},")),
+        "{json}"
+    );
     assert!(json.contains("{\"n\":\"fill\""), "{json}");
     assert!(json.contains("{\"n\":\"first-line-indent\""), "{json}");
     assert_eq!(
         style_json("Plain text.\n"),
         "{\"font\":null,\"size\":null,\"justify\":null,\"text\":null,\"par\":null}"
     );
-    assert!(style_json("#set text(size: 2cm)").contains("\"size\":56.69"), "{}", style_json("#set text(size: 2cm)"));
+    assert!(
+        style_json("#set text(size: 2cm)").contains("\"size\":56.69"),
+        "{}",
+        style_json("#set text(size: 2cm)")
+    );
 }
 
 #[test]
@@ -209,7 +235,10 @@ fn outline_reports_link_calls() {
         json.contains(&format!("\"k\":\"hyperlink\",\"s\":{start},")),
         "{json}"
     );
-    assert!(json.contains(&format!("\"c\":[{body},{}]", text.find("] or").unwrap())), "{json}");
+    assert!(
+        json.contains(&format!("\"c\":[{body},{}]", text.find("] or").unwrap())),
+        "{json}"
+    );
     // Markup inside the link text is still styled.
     assert!(json.contains("\"k\":\"strong\""), "{json}");
     let bare = text.rfind("#link").unwrap();
@@ -218,7 +247,61 @@ fn outline_reports_link_calls() {
         json.contains(&format!("\"k\":\"hyperlink\",\"s\":{bare},")),
         "{json}"
     );
-    assert!(json.contains(&format!("\"c\":[{address},{}]", address + 11)), "{json}");
+    assert!(
+        json.contains(&format!("\"c\":[{address},{}]", address + 11)),
+        "{json}"
+    );
     // Other calls stay embedded code.
     assert!(outline_json("#link(dest: \"x\")[y]").contains("\"k\":\"code\""));
+}
+
+#[test]
+fn outline_colours_code_blocks_by_language() {
+    let text = "```python\n# note\ndef area(r):\n    return 3.14 * r  # half\n```\n\n```unknown\nfn x\n```\n\n`let x = \"s\"`\n";
+    let json = outline_json(text);
+    let token = |needle: &str, category: i64| {
+        let start = text.find(needle).unwrap();
+        format!(
+            "\"k\":\"token\",\"s\":{start},\"e\":{},\"n\":{category}",
+            start + needle.len()
+        )
+    };
+    assert!(json.contains(&token("# note", 0)), "{json}");
+    assert!(json.contains(&token("def", 2)), "{json}");
+    assert!(json.contains(&token("area", 4)), "{json}");
+    assert!(json.contains(&token("return", 2)), "{json}");
+    assert!(json.contains(&token("3.14", 3)), "{json}");
+    // Unknown languages and untagged raw text stay plain.
+    let unknown = text.find("```unknown").unwrap();
+    assert!(
+        !json.split("\"k\":\"token\",\"s\":").skip(1).any(|rest| {
+            rest.split(',')
+                .next()
+                .and_then(|s| s.parse::<usize>().ok())
+                .is_some_and(|s| s > unknown)
+        }),
+        "{json}"
+    );
+}
+
+#[test]
+fn code_highlighting_is_quick() {
+    let started = std::time::Instant::now();
+    outline_json("```rust\nfn main() {}\n```\n");
+    let first = started.elapsed();
+    let block = format!(
+        "```python\n{}```\n",
+        "def f(x):\n    return x * 2  # twice\n".repeat(500)
+    );
+    let started = std::time::Instant::now();
+    outline_json(&block);
+    let fresh = started.elapsed();
+    let started = std::time::Instant::now();
+    outline_json(&format!("Edited.\n\n{block}"));
+    let cached = started.elapsed();
+    eprintln!("first {first:?}, 1000 lines {fresh:?}, unchanged {cached:?}");
+    assert!(
+        cached < fresh / 4,
+        "an unchanged block should come from the cache"
+    );
 }
