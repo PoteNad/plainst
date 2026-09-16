@@ -244,13 +244,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
   }
 
   @objc func showAbout(_ sender: Any?) {
+    let centered = NSMutableParagraphStyle()
+    centered.alignment = .center
     // Like PoteNad, show only the version, not the build number.
     NSApp.orderFrontStandardAboutPanel(options: [
       .version: "",
       .credits: NSAttributedString(
-        string:
-          "A small, native Typst editor for prose and math.\nTypesetting by the Typst compiler (Apache-2.0).\nThird-party licenses are in Help ▸ Acknowledgments.",
-        attributes: [.font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize), .foregroundColor: NSColor.secondaryLabelColor])
+        string: "A small, native Typst editor for prose and math.\nTypesetting by the Typst compiler.",
+        attributes: [
+          .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
+          .foregroundColor: NSColor.secondaryLabelColor, .paragraphStyle: centered,
+        ]),
     ])
   }
 

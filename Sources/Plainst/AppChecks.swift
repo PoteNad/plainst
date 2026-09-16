@@ -838,6 +838,9 @@ enum AppChecks {
           }
         }
       }
+      if environment["PLAINST_ABOUT"] == "1" {
+        after(0.5) { (NSApp.delegate as? AppDelegate)?.showAbout(nil) }
+      }
       if environment["PLAINST_ACKNOWLEDGMENTS"] == "1" {
         after(0.5) { (NSApp.delegate as? AppDelegate)?.showAcknowledgments(nil) }
       }
