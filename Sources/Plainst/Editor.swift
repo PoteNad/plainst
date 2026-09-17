@@ -23,6 +23,7 @@ final class Editor: NSWindowController, NSMenuItemValidation, NSWindowDelegate, 
   private lazy var statusHeight = statusBar.heightAnchor.constraint(equalToConstant: 24)
 
   private weak var note: PlainstDocument?
+  private var inFullScreenTransition = false
   private(set) var statusVisible = UserDefaults.standard.bool(forKey: PreferenceKey.status)
   let symbols = SymbolsViewController()
   private var symbolsItem: NSSplitViewItem!
@@ -159,17 +160,27 @@ final class Editor: NSWindowController, NSMenuItemValidation, NSWindowDelegate, 
 
   required init?(coder: NSCoder) { fatalError() }
 
-  /// Centres the window on the active screen, sized to fit comfortably within it.
+  /// Centres the window on the active screen, at the size the user last gave a window, or
+  /// sized to fit comfortably within the screen before they have resized one.
   private func placeWindow() {
     guard let window else { return }
     let screen = (NSApp.keyWindow ?? NSApp.mainWindow)?.screen ?? NSScreen.main
     guard let visible = screen?.visibleFrame else { return window.center() }
-    // Windows that open with the preview showing start wide enough for the text and a page.
-    let width = contentWidth(outline: outlineVisible, preview: previewVisible, symbols: symbolsVisible)
-    let size = NSSize(
-      width: min(width, visible.width * (previewVisible ? 0.9 : 0.8)).rounded(),
-      height: min(740, visible.height * 0.85).rounded())
-    let frame = window.frameRect(forContentRect: NSRect(origin: .zero, size: size))
+    var size: NSSize
+    if let saved = Self.windowDefaults.string(forKey: PreferenceKey.windowSize).map(NSSizeFromString),
+      saved.width > 0, saved.height > 0
+    {
+      size = saved
+    } else {
+      // Windows that open with the preview showing start wide enough for the text and a page.
+      let width = contentWidth(outline: outlineVisible, preview: previewVisible, symbols: symbolsVisible)
+      size = NSSize(
+        width: min(width, visible.width * (previewVisible ? 0.9 : 0.8)).rounded(),
+        height: min(740, visible.height * 0.85).rounded())
+    }
+    var frame = window.frameRect(forContentRect: NSRect(origin: .zero, size: size))
+    frame.size.width = min(frame.width, visible.width)
+    frame.size.height = min(frame.height, visible.height)
     window.setFrame(
       NSRect(
         x: (visible.midX - frame.width / 2).rounded(), y: (visible.midY - frame.height / 2).rounded(),
@@ -180,6 +191,34 @@ final class Editor: NSWindowController, NSMenuItemValidation, NSWindowDelegate, 
   func window(_ window: NSWindow, didDecodeRestorableState state: NSCoder) {
     placeWindow()
   }
+
+  // Resizing by dragging, zooming, or tiling sets the size new windows open at. Full screen
+  // doesn't, and neither does placing a window before it is shown.
+  func windowDidResize(_ notification: Notification) { rememberWindowSize() }
+
+  func windowWillEnterFullScreen(_ notification: Notification) { inFullScreenTransition = true }
+
+  func windowDidExitFullScreen(_ notification: Notification) { inFullScreenTransition = false }
+
+  private func rememberWindowSize() {
+    guard !inFullScreenTransition, let window, window.isVisible,
+      !window.styleMask.contains(.fullScreen)
+    else { return }
+    let size = window.contentRect(forFrameRect: window.frame).size
+    Self.windowDefaults.set(NSStringFromSize(size), forKey: PreferenceKey.windowSize)
+  }
+
+  /// Where the window size is kept. Automated checks use a store of their own, so they
+  /// exercise saving without changing the user's windows.
+  static let windowDefaults: UserDefaults = {
+    #if PLAINST_CHECKS
+      if AppChecks.isChecking, let checks = UserDefaults(suiteName: "io.github.PoteNad.plainst.checks") {
+        checks.removeObject(forKey: PreferenceKey.windowSize)
+        return checks
+      }
+    #endif
+    return .standard
+  }()
 
   func loadText(_ text: String) { typst.loadText(text) }
 
@@ -428,8 +467,10 @@ final class Editor: NSWindowController, NSMenuItemValidation, NSWindowDelegate, 
     }
   }
 
-  /// The narrowest the text beside the preview should get, before the preview gives way.
+  /// The text width new windows leave beside a full-size preview page.
   private static let textBesidePreview: CGFloat = 480
+  /// The narrowest the text gets so the preview can show a full-size page.
+  private static let narrowestTextBesidePreview: CGFloat = 320
 
   /// The window content width that fits the text with the given panels open, with a full-size
   /// page in the preview. New windows open this wide; panels never resize a window after that.
@@ -440,8 +481,8 @@ final class Editor: NSWindowController, NSMenuItemValidation, NSWindowDelegate, 
     return width.rounded(.up)
   }
 
-  /// Gives the preview a full-size page when there is room, and otherwise as much as it can
-  /// have while the text keeps a comfortable width.
+  /// Gives the preview a full-size page when there is room, like double-clicking its divider,
+  /// and otherwise as much as it can have while the text stays readable.
   private func layoutPreview() {
     guard previewVisible, let split = window?.contentViewController as? NSSplitViewController,
       let item = split.splitViewItems.firstIndex(of: previewItem), item > 0
@@ -453,7 +494,8 @@ final class Editor: NSWindowController, NSMenuItemValidation, NSWindowDelegate, 
     let end = symbolsVisible ? panes[panes.count - 1].frame.minX : split.splitView.bounds.width
     let space = end - start
     let previewWidth = min(
-      previewPane.fittingWidth, max(previewItem.minimumThickness, (space - Self.textBesidePreview).rounded()))
+      previewPane.fittingWidth,
+      max(previewItem.minimumThickness, (space - Self.narrowestTextBesidePreview).rounded()))
     split.splitView.setPosition((end - previewWidth).rounded(), ofDividerAt: item - 1)
   }
 
@@ -469,7 +511,7 @@ final class Editor: NSWindowController, NSMenuItemValidation, NSWindowDelegate, 
     guard panes.count == split.splitViewItems.count else { return }
     let start = outlineVisible ? panes[0].frame.maxX : 0
     let end = panes[item].frame.maxX
-    let position = max(start + 320, end - previewPane.fittingWidth)
+    let position = max(start + Self.narrowestTextBesidePreview, end - previewPane.fittingWidth)
     NSAnimationContext.runAnimationGroup { context in
       context.duration = 0.2
       context.allowsImplicitAnimation = true

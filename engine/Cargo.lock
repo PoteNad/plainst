@@ -1525,6 +1525,7 @@ name = "plainst-engine"
 version = "0.1.0"
 dependencies = [
  "codex",
+ "memmap2",
  "syntect",
  "typst",
  "typst-assets",

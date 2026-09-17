@@ -3,7 +3,8 @@ import PlainstCore
 import PlainstEditor
 
 /// The typeset document beside the editor. Each page is an image rendered by Typst, and
-/// only pages whose content changed are rendered again, so updates never flash.
+/// only pages whose content changed are rendered again, so updates never flash. Only pages
+/// on screen or near it keep an image, so long documents don't hold every page in memory.
 final class PreviewViewController: NSViewController {
   weak var editor: Editor?
   /// The editor's key for its kept document in the engine.
@@ -24,6 +25,11 @@ final class PreviewViewController: NSViewController {
   /// Points on screen per point on the page. Pages are never shown larger than actual size.
   private(set) var scale: CGFloat = 1
   private var renderGeneration = 0
+  /// Pages being rendered now, so scrolling doesn't queue them again.
+  private var rendering = Set<Int>()
+  /// Whether a request skipped pages that were already rendering, and should run again once
+  /// they finish, in case they now need a different size or content.
+  private var skippedBusyPages = false
   private var lastLayoutWidth: CGFloat = 0
 
   static let maximumScale: CGFloat = 1
@@ -39,6 +45,9 @@ final class PreviewViewController: NSViewController {
     scroll.drawsBackground = true
     scroll.backgroundColor = .underPageBackgroundColor
     scroll.automaticallyAdjustsContentInsets = false
+    scroll.contentView.postsBoundsChangedNotifications = true
+    NotificationCenter.default.addObserver(
+      self, selector: #selector(scrolled), name: NSView.boundsDidChangeNotification, object: scroll.contentView)
     pagesView.wantsLayer = true
     pagesView.onClick = { [weak self] point in self?.clicked(at: point) }
     pagesView.onAppearanceChange = { [weak self] in
@@ -177,7 +186,17 @@ final class PreviewViewController: NSViewController {
     CATransaction.commit()
   }
 
-  /// Renders pages that changed or are shown at a new size, nearest to the visible area first.
+  @objc private func scrolled() { requestRenders(after: 0) }
+
+  /// The area whose pages keep images: what is visible, and a screen above and below it so
+  /// scrolling finds pages ready.
+  private var keptArea: NSRect {
+    let visible = pagesView.visibleRect
+    return visible.insetBy(dx: 0, dy: -max(visible.height, 400))
+  }
+
+  /// Renders pages near the visible area that changed or are shown at a new size, nearest
+  /// first, and lets go of the images of pages far from it.
   private func requestRenders(after delay: TimeInterval) {
     renderGeneration += 1
     let generation = renderGeneration
@@ -185,24 +204,44 @@ final class PreviewViewController: NSViewController {
       guard let self, generation == self.renderGeneration, !self.pages.isEmpty else { return }
       let pixelsPerPoint = Double(self.scale * (self.view.window?.backingScaleFactor ?? 2))
       let visible = self.pagesView.visibleRect
+      let kept = self.keptArea
+      CATransaction.begin()
+      CATransaction.setDisableActions(true)
+      for index in self.pages.indices where self.shown[index] != nil && !self.frames[index].intersects(kept) {
+        self.layers[index].contents = nil
+        self.shown[index] = nil
+      }
+      CATransaction.commit()
       let work = self.pages.indices
         .filter { index in
-          guard let current = self.shown[index] else { return true }
-          return current.page != self.pages[index] || abs(current.pixelsPerPoint - pixelsPerPoint) > 0.01
+          guard self.frames[index].intersects(kept) else { return false }
+          let current = self.shown[index]
+          let needed = current == nil || current?.page != self.pages[index]
+            || abs((current?.pixelsPerPoint ?? 0) - pixelsPerPoint) > 0.01
+          if needed, self.rendering.contains(index) {
+            self.skippedBusyPages = true
+            return false
+          }
+          return needed
         }
         .sorted { abs(self.frames[$0].midY - visible.midY) < abs(self.frames[$1].midY - visible.midY) }
       guard !work.isEmpty else { return }
+      self.rendering.formUnion(work)
       let key = self.key
       let pages = self.pages
       Self.queue.async {
         for index in work {
-          guard
-            let image = Engine.renderPage(
-              key: key, index: index, page: pages[index], pixelsPerPoint: pixelsPerPoint)
-          else { continue }
+          let image = Engine.renderPage(key: key, index: index, page: pages[index], pixelsPerPoint: pixelsPerPoint)
           DispatchQueue.main.async {
             MainActor.assumeIsolated {
-              guard index < self.pages.count, self.pages[index] == pages[index] else { return }
+              self.rendering.remove(index)
+              if self.rendering.isEmpty, self.skippedBusyPages {
+                self.skippedBusyPages = false
+                self.requestRenders(after: 0)
+              }
+              guard let image, index < self.pages.count, self.pages[index] == pages[index],
+                self.frames[index].intersects(self.keptArea)
+              else { return }
               CATransaction.begin()
               CATransaction.setDisableActions(true)
               self.layers[index].contents = image
@@ -248,6 +287,10 @@ final class PreviewViewController: NSViewController {
 
   #if PLAINST_CHECKS
     var visibleArea: NSRect { pagesView.visibleRect }
+
+    func scrollToEnd() {
+      pagesView.scroll(NSPoint(x: 0, y: pagesView.bounds.maxY))
+    }
 
     func image(ofPage index: Int) -> AnyObject? { layers.indices.contains(index) ? layers[index].contents as AnyObject? : nil }
 

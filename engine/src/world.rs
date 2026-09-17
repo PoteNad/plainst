@@ -38,10 +38,32 @@ pub(crate) fn fonts() -> &'static FontStore {
         let mut store = FontStore::new();
         store.extend(typst_kit::fonts::embedded());
         if std::env::var_os("PLAINST_NO_SYSTEM_FONTS").is_none() {
-            store.extend(typst_kit::fonts::system());
+            store.extend(
+                typst_kit::fonts::system().map(|(path, info)| (MappedFont(path), info)),
+            );
         }
         store
     })
+}
+
+/// An installed font that is mapped into memory when Typst first uses it. Reading it instead
+/// would copy the whole file: Apple Color Emoji alone is 180 MB, and one emoji or ⌘ in a
+/// document falls back to it. Mapped pages are shared with the file and can be dropped by
+/// the system, so they don't add to the app's memory footprint.
+struct MappedFont(typst_kit::fonts::FontPath);
+
+impl typst_kit::fonts::FontSource for MappedFont {
+    fn load(&self) -> Option<Font> {
+        let mapped = std::fs::File::open(&self.0.path)
+            .ok()
+            // SAFETY: installed fonts are not modified in place while the app runs; macOS
+            // replaces font files rather than rewriting them, and fontdb maps them the same way.
+            .and_then(|file| unsafe { memmap2::Mmap::map(&file) }.ok());
+        match mapped {
+            Some(map) => Font::new(typst::foundations::Bytes::new(map), self.0.index),
+            None => self.0.load(),
+        }
+    }
 }
 
 pub(crate) struct PlainstWorld {

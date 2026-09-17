@@ -24,6 +24,8 @@ enum PreferenceKey {
   static let textWidth = "textWidth"
   /// Whether the status bar counts words or characters.
   static let statusCount = "statusCount"
+  /// The content size of the window the user last resized, which new windows open at.
+  static let windowSize = "windowSize"
 }
 
 enum AppAppearance: String, CaseIterable {

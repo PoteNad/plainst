@@ -350,6 +350,7 @@ enum AppChecks {
               }
               editor.toggleSymbols(nil)
               pass("showing the preview and sidebars shares the window instead of resizing it")
+
               editor.togglePreview(nil)
         editor.loadText(Guide.text)
         editor.toggleOutline(nil)
@@ -367,7 +368,74 @@ enum AppChecks {
           }
           editor.toggleOutline(nil)
           pass("the outline sidebar lists headings and follows the cursor")
-          finish()
+
+          // With symbols already open in a narrow window, the preview opens as wide as the page
+          // allows, as double-clicking its divider would make it.
+          editor.window?.setContentSize(NSSize(width: 906, height: 620))
+          after(0.6) {
+            editor.toggleSymbols(nil)
+            after(1.0) {
+              editor.togglePreview(nil)
+              after(1.0) {
+                let split = editor.window?.contentViewController as? NSSplitViewController
+                let panes = split?.splitView.arrangedSubviews ?? []
+                guard panes.count == 4, editor.previewVisible, editor.symbolsVisible, panes[3].frame.width > 100 else {
+                  fail("expected the text, preview, and symbols to be showing: \(panes.map(\.frame))")
+                }
+                let divider = split?.splitView.dividerThickness ?? 1
+                let room = panes[3].frame.minX - divider - 320 - divider
+                let preview = panes[2].frame.width
+                guard abs(preview - min(editor.previewPane.fittingWidth, room)) <= 2, panes[1].frame.width >= 319 else {
+                  fail("the preview should open at \(min(editor.previewPane.fittingWidth, room)) beside symbols, not \(preview): \(panes.map(\.frame))")
+                }
+                pass("the preview opens as wide as the page allows beside the symbols sidebar")
+
+                // Resizing a window sets the size the next window opens at.
+                for document in NSDocumentController.shared.documents
+                where (document as? PlainstDocument)?.editor !== editor {
+                  document.updateChangeCount(.changeCleared)
+                  document.close()
+                }
+                editor.window?.setContentSize(NSSize(width: 820, height: 560))
+                let resized = editor.window.map { $0.contentRect(forFrameRect: $0.frame).size } ?? .zero
+                guard Editor.windowDefaults.string(forKey: PreferenceKey.windowSize) == NSStringFromSize(resized) else {
+                  fail("resizing should save \(resized), not \(String(describing: Editor.windowDefaults.string(forKey: PreferenceKey.windowSize)))")
+                }
+                NSDocumentController.shared.newDocument(nil)
+                after(1.0) {
+                  let newest = NSDocumentController.shared.documents.compactMap { ($0 as? PlainstDocument)?.editor }.last
+                  guard let window = newest?.window, newest !== editor,
+                    window.contentRect(forFrameRect: window.frame).size == resized
+                  else {
+                    fail("a new window should open at \(resized), not \(String(describing: newest?.window?.frame.size))")
+                  }
+                  Editor.windowDefaults.removeObject(forKey: PreferenceKey.windowSize)
+                  pass("new windows open at the size of the last resized window")
+
+                  // A long document's preview keeps images only for pages near the view, and
+                  // renders the others as they scroll into view.
+                  editor.window?.makeKeyAndOrderFront(nil)
+                  editor.loadText((1...40).map { "= Page \($0)\n\nText on page \($0).\n" }.joined(separator: "#pagebreak()\n"))
+                  let pane = editor.previewPane
+                  after(4) {
+                    guard pane.pages.count == 40, pane.image(ofPage: 0) != nil, pane.image(ofPage: 39) == nil,
+                      pane.renderedPageCount < 12
+                    else {
+                      fail("a long preview should render only nearby pages: \(pane.pages.count) pages, \(pane.renderedPageCount) rendered")
+                    }
+                    pane.scrollToEnd()
+                    after(2) {
+                      guard pane.image(ofPage: 39) != nil, pane.image(ofPage: 0) == nil, pane.renderedPageCount < 12 else {
+                        fail("scrolling should render the pages reached and release the first: \(pane.renderedPageCount) rendered")
+                      }
+                      pass("the preview keeps images only for pages near the view and renders them on scroll")
+                      finish()
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
             }
           }
@@ -982,7 +1050,9 @@ enum AppChecks {
         after(0.2) { editor.toggleOutline(nil) }
       }
       if environment["PLAINST_TOGGLE_PREVIEW"] == "1" {
-        after(0.3) { editor.togglePreview(nil) }
+        after(environment["PLAINST_PREVIEW_DELAY"].flatMap(Double.init) ?? 0.3) {
+          editor.togglePreview(nil)
+        }
       }
       if environment["PLAINST_OUTLINE"] == "1" {
         after(1.5) { editor.showOutline(nil) }
